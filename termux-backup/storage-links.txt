@@ -1,0 +1,14 @@
+total 7
+drwx------. 2 u0_a362 u0_a362 3452 Jul 26 13:15 .
+drwx------. 8 u0_a362 u0_a362 3452 Jul 26 22:42 ..
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 audiobooks -> /storage/emulated/0/Audiobooks
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 dcim -> /storage/emulated/0/DCIM
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 documents -> /storage/emulated/0/Documents
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 downloads -> /storage/emulated/0/Download
+lrwxrwxrwx. 1 u0_a362 u0_a362   66 Jul 26 13:15 external-0 -> /storage/emulated/0/Android/data/com.termux/files
+lrwxrwxrwx. 1 u0_a362 u0_a362   50 Jul 26 13:15 media-0 -> /storage/emulated/0/Android/media/com.termux
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 movies -> /storage/emulated/0/Movies
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 music -> /storage/emulated/0/Music
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 pictures -> /storage/emulated/0/Pictures
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 podcasts -> /storage/emulated/0/Podcasts
+lrwxrwxrwx. 1 u0_a362 u0_a362   34 Jul 26 13:15 shared -> /storage/emulated/0

@@ -1,0 +1,23 @@
+import speech_recognition as sr, subprocess, time, datetime, random
+r = sr.Recognizer()
+r.energy_threshold = 300
+stories = ["In the shadows, a whisper hissed: Whos there?, The clock struck midnight, and the walls groaned., A cold hand brushed my neck in the dark., The mirror reflected a face that wasnt mine."]
+with sr.Microphone() as source:
+    print("Adjusting for ambient noise...")
+    r.adjust_for_ambient_noise(source, duration=1)
+    while True:
+        try:
+            print("Listening for \"take note\"...")
+            audio = r.listen(source, timeout=3, phrase_time_limit=3)
+            text = r.recognize_sphinx(audio)
+            print(f"Heard: {text}")
+            if "take note" in text.lower():
+                story = random.choice(stories)
+                print(f"Telling story: {story}")
+                filename = "/storage/emulated/0/Download/story_" + time.strftime("%Y-%m-%d_%H%M%S") + ".txt"
+                with open(filename, "w") as f: f.write(story)
+                subprocess.run(["termux-tts-speak", story])
+                subprocess.run(["termux-toast", f"Story saved as {filename}"])
+                subprocess.run(["termux-tts-speak", "Tale woven into the matrix"])
+        except Exception as e:
+            print(f"Error: {e}")

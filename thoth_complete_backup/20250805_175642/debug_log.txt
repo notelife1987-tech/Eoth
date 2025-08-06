@@ -1,0 +1,52 @@
+=== THOTH DEBUG LOG Tue Aug  5 17:56:42 EDT 2025 ===
+Latest terminal session output:
+  430          body { font-family: Arial, sans-serif; margin: 20px; max-width: 800px; }
+  431          #chat-box { height: 400px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; }
+  432          #input { width: 100%; padding: 10px; margin: 10px 0; }
+  433          button { padding: 10px 20px; }
+  434      </style>
+  435  </head>
+  436  <body>
+  437      <h1>Claude Chat</h1>
+  438      <div id="chat-box"></div>
+  439      <input id="input" type="text" placeholder="Ask Claude anything...">
+  440      <button onclick="sendMessage()">Send</button>
+  441      <script>
+  442          async function sendMessage() {
+  443              const input = document.getElementById("input").value;
+  444              if (!input) return;
+  445              const chatBox = document.getElementById("chat-box");
+  446              chatBox.innerHTML += `<p><b>You:</b> ${input}</p>`;
+  447              try {
+  448                  const response = await fetch("http://localhost:8000/chat", {
+  449                      method: "POST",
+  450                      headers: { "Content-Type": "application/json" },
+  451                      body: JSON.stringify({ message: input })
+  452                  });
+  453                  const data = await response.json();
+  454                  chatBox.innerHTML += `<p><b>Claude:</b> ${data.response || data.error}</p>`;
+  455              } catch (e) {
+  456                  chatBox.innerHTML += `<p><b>Error:</b> ${e.message}</p>`;
+  457              }
+  458              document.getElementById("input").value = "";
+  459              chatBox.scrollTop = chatBox.scrollHeight;
+  460          }
+  461          document.getElementById("input").addEventListener("keypress", (e) => {
+  462              if (e.key === "Enter") sendMessage();
+  463          });
+  464      </script>
+  465  </body>
+  466  </html>
+  467  EOF
+  468  'termux-change-repo'
+  469  # Create comprehensive backup with all versions
+  470  mkdir -p ~/thoth_complete_backup/$(date +%Y%m%d_%H%M%S)
+  471  cd ~/thoth_complete_backup/$(date +%Y%m%d_%H%M%S)
+  472  # Copy all THOTH files
+  473  cp ~/my-project-clean/thoth.py ./
+  474  cp ~/my-project-clean/thoth_client.html ./
+  475  cp ~/my-project-clean/config.py ./
+  476  # Export debug logs from recent session
+  477  echo "=== THOTH DEBUG LOG $(date) ===" > debug_log.txt
+  478  echo "Latest terminal session output:" >> debug_log.txt
+  479  history | tail -50 >> debug_log.txt

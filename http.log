@@ -1,0 +1,16 @@
+::1 - - [05/Aug/2025 04:43:11] code 404, message File not found
+::1 - - [05/Aug/2025 04:43:11] "GET /thoth_client.html HTTP/1.1" 404 -
+::1 - - [05/Aug/2025 04:43:13] code 404, message File not found
+::1 - - [05/Aug/2025 04:43:13] "GET /thoth_client.html HTTP/1.1" 404 -
+::1 - - [05/Aug/2025 04:43:13] code 404, message File not found
+::1 - - [05/Aug/2025 04:43:13] "GET /favicon.ico HTTP/1.1" 404 -
+::1 - - [05/Aug/2025 05:41:24] code 404, message File not found
+::1 - - [05/Aug/2025 05:41:24] "GET /favicon.ico HTTP/1.1" 404 -
+::1 - - [05/Aug/2025 11:31:10] code 404, message File not found
+::1 - - [05/Aug/2025 11:31:10] "GET /thoth_client.html HTTP/1.1" 404 -
+::1 - - [05/Aug/2025 11:31:10] code 404, message File not found
+::1 - - [05/Aug/2025 11:31:10] "GET /favicon.ico HTTP/1.1" 404 -
+::1 - - [05/Aug/2025 11:31:19] code 404, message File not found
+::1 - - [05/Aug/2025 11:31:19] "GET /thoth_client.html HTTP/1.1" 404 -
+::1 - - [05/Aug/2025 12:55:16] code 404, message File not found
+::1 - - [05/Aug/2025 12:55:16] "GET /favicon.ico HTTP/1.1" 404 -
