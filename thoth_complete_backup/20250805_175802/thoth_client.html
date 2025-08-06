@@ -1,0 +1,14 @@
+<script>
+    let ais = [];
+    let chatHistory = [];
+
+    async function fetchAIs() {
+        const response = await fetch('http://localhost:8001/list_ais');
+        ais = (await response.json()).ais;
+        updateAIButtons();
+        updateCriticDropdown();
+    }
+
+    function updateAIButtons() {
+        const buttonsDiv = document.getElementById('ai-buttons');
+        buttonsDiv.innerHTML = ais.map(ai => 
