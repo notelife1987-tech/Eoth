@@ -1,18 +1,3 @@
-rm -rf venv && python3 -m venv venv
-source venv/bin/activate
-# 3. Update package manager and install Python
-pkg update && pkg upgrade -y
-pkg install python -y
-python3 --version  # Should be 3.8+
-# 4. Install minimal dependencies
-pip install --upgrade pip
-pip install fastapi==0.115.2 uvicorn==0.32.0 python-dotenv==1.0.1 anthropic==0.34.2
-# 5. Create .env file with Anthropic API key
-cat > .env << EOF
-ANTHROPIC_API_KEY=your-anthropic-api-key
-EOF
-
-# 6. Create FastAPI app (main.py)
 cat > main.py << EOF
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -498,3 +483,18 @@ ENCRYPTION_KEY=yourENCRYPTION_KEY=your-encryption-encryption-key-key
 ######## Running Running the the App App  
 StartStart the the app app with with::  
 ```bash```bash  
+echo "# THOTH" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/notelife1987-tech/THOTH.git
+git push -u origin main
+echo "# THOTH" >> README.md && git init && git add README.md && git commit -m "first commit" && git branch -M main && git remote add origin https://github.com/notelife1987-tech/THOTH.git && git push -u origin main
+git config --global user.email "notelife1987@gmail.com"
+git config --global user.email "notelife1987@gmail.com" 
+echo "# THOTH" >> README.md && git init && git add README.md && git commit -m "first commit" && git branch -M main && git remote add origin https://github.com/notelife1987-tech/THOTH.git && git push -u origin main
+cd ~/my-project-clean && mkdir -p THOTH_SEMI_FINAL && cd THOTH_SEMI_FINAL && echo -e "# Copyright 2025 notelife1987-tech. All rights reserved.\nfrom fastapi import FastAPI, WebSocket, HTTPException\nimport os\nimport logging\nfrom dotenv import load_dotenv\nimport anthropic\nimport openai\nimport google.generativeai as genai\nfrom cryptography.fernet import Fernet\n\nlogging.basicConfig(filename='THOTH_SEMI_FINAL_ERROR.log', level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')\nload_dotenv()\napp = FastAPI()\n\n# Configure AI APIs\nanthropic_client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))\nopenai.api_key = os.getenv('OPENAI_API_KEY')\ngenai.configure(api_key=os.getenv('GEMINI_API_KEY'))\nencryption_key = os.getenv('ENCRYPTION_KEY')\nfernet = Fernet(
+
+
+
