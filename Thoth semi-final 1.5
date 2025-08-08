@@ -1,0 +1,497 @@
+from flask import Flask, render_template, request, jsonify
+from dotenv import load_dotenv
+import os
+import requests
+from cryptography.fernet import Fernet
+import logging
+import uuid
+import time
+from flask_sqlalchemy import SQLAlchemy
+import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import random
+
+app = Flask(__name__)
+load_dotenv()
+
+# --- Database Configuration ---
+# Use PostgreSQL in production, SQLite for development
+database_url = os.getenv('DATABASE_URL', 'sqlite:///helix_chat.db')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'helix-secret-change-in-production')
+
+db = SQLAlchemy(app)
+
+# --- Enhanced Models ---
+class Assistant(db.Model):
+    id = db.Column(db.String(100), primary_key=True)
+    type = db.Column(db.String(50), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    model = db.Column(db.String(100), nullable=False)
+    api_key_encrypted = db.Column(db.Text, nullable=True)
+    access_token_encrypted = db.Column(db.Text, nullable=True)
+    refresh_token_encrypted = db.Column(db.Text, nullable=True)
+    active = db.Column(db.Boolean, default=True)
+    is_critic = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'name': self.name,
+            'model': self.model,
+            'active': self.active,
+            'is_critic': self.is_critic,
+            'created_at': self.created_at.isoformat()
+        }
+
+class Message(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=db.func.current_timestamp())
+    sender_id = db.Column(db.String(100), nullable=False)
+    sender_type = db.Column(db.String(50), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    is_critic_response = db.Column(db.Boolean, default=False)
+    original_message_id = db.Column(db.Integer, db.ForeignKey('message.id'))
+    session_id = db.Column(db.String(100), nullable=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.isoformat(),
+            'sender_id': self.sender_id,
+            'sender_type': self.sender_type,
+            'content': self.content,
+            'is_critic_response': self.is_critic_response,
+            'session_id': self.session_id
+        }
+
+class SystemConfig(db.Model):
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler('helix.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Encryption setup
+ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
+if not ENCRYPTION_KEY:
+    ENCRYPTION_KEY = Fernet.generate_key().decode()
+    logger.warning(f"Generated new ENCRYPTION_KEY. Add to .env: ENCRYPTION_KEY={ENCRYPTION_KEY}")
+
+try:
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+except Exception as e:
+    logger.error(f"Invalid ENCRYPTION_KEY: {e}")
+    cipher = Fernet(Fernet.generate_key())
+
+# Thread pool for concurrent operations
+executor = ThreadPoolExecutor(max_workers=10)
+
+def init_db():
+    """Initialize database tables"""
+    with app.app_context():
+        db.create_all()
+        logger.info("Database initialized")
+
+def validate_api_key(assistant_type, api_key, retries=3, delay=2):
+    """Validate API key with proper error handling"""
+    endpoints = {
+        'openai': 'https://api.openai.com/v1/models',
+        'anthropic': 'https://api.anthropic.com/v1/messages',
+        'gemini': 'https://generativelanguage.googleapis.com/v1/models',
+        'grok': 'https://api.x.ai/v1/models',
+    }
+    
+    headers = {'Authorization': f'Bearer {api_key}'}
+    if assistant_type == 'anthropic':
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json'
+        }
+    
+    for attempt in range(retries):
+        try:
+            response = requests.get(
+                endpoints.get(assistant_type, ''),
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                models = data.get('data', data.get('models', []))
+                
+                # Return best available model
+                if assistant_type == 'openai':
+                    return next((m['id'] for m in models if 'gpt-4o' in m['id']), 
+                              next((m['id'] for m in models if 'gpt-4' in m['id']), 'gpt-3.5-turbo'))
+                elif assistant_type == 'grok':
+                    return next((m['id'] for m in models if 'grok' in m['id'].lower()), 
+                              models[0]['id'] if models else 'grok-1')
+                else:
+                    return models[0]['id'] if models else 'default-model'
+                    
+            elif response.status_code == 429:
+                logger.warning(f'Rate limit for {assistant_type}, attempt {attempt + 1}')
+                if attempt < retries - 1:
+                    time.sleep(delay * (2 ** attempt))
+                continue
+            else:
+                logger.error(f'API validation failed for {assistant_type}: {response.status_code}')
+                
+        except requests.RequestException as e:
+            logger.error(f'Network error validating {assistant_type}: {str(e)}')
+            if attempt < retries - 1:
+                time.sleep(delay)
+                continue
+    
+    raise ValueError(f'Failed to validate {assistant_type} API key after {retries} attempts')
+
+def mock_llm_response(assistant_type, model, content, context_length=0):
+    """Generate realistic mock responses for testing without API keys"""
+    responses = {
+        'openai': [
+            f"Based on your question about '{content[:50]}...', I can provide several insights. First, this appears to be related to AI system architecture.",
+            f"Analyzing your query: '{content[:30]}...'. From a technical perspective, there are multiple approaches to consider.",
+            f"Regarding '{content[:40]}...', I'd suggest looking at this from both theoretical and practical standpoints."
+        ],
+        'anthropic': [
+            f"I appreciate your question about '{content[:50]}...'. Let me break this down systematically for you.",
+            f"Thank you for asking about '{content[:30]}...'. This is an interesting topic that has several dimensions to explore.",
+            f"Your inquiry about '{content[:40]}...' touches on some important concepts I'd like to elaborate on."
+        ],
+        'gemini': [
+            f"That's a great question about '{content[:50]}...'. Google's research suggests several relevant factors.",
+            f"Interesting query on '{content[:30]}...'. Based on current understanding, here are key points to consider.",
+            f"Your question about '{content[:40]}...' aligns with recent developments in this field."
+        ],
+        'grok': [
+            f"Well, well, well... '{content[:50]}...'. *adjusts digital sunglasses* Let me give you the unvarnished truth here.",
+            f"Oh, you want to know about '{content[:30]}...'? Buckle up, because this might get spicy! 🌶️",
+            f"'{content[:40]}...' - now that's what I call a question worth answering! Let me break it down for you."
+        ]
+    }
+    
+    # Add context awareness indicator
+    context_note = f" (Context: {context_length} previous messages)" if context_length > 0 else ""
+    
+    base_response = random.choice(responses.get(assistant_type, responses['openai']))
+    return base_response + context_note
+
+def mock_critic_response(original_content, all_responses):
+    """Generate mock critic evaluation"""
+    num_responses = len(all_responses)
+    
+    critic_templates = [
+        f"After reviewing {num_responses} responses to '{original_content[:30]}...', I notice some interesting patterns. The responses show varying degrees of depth and approach.",
+        f"Comparative analysis of the {num_responses} responses reveals different strengths. Some focus on technical details while others emphasize practical applications.",
+        f"Evaluating the {num_responses} responses to your query about '{original_content[:40]}...': Each model brings a unique perspective to this topic."
+    ]
+    
+    return random.choice(critic_templates)
+
+@app.route('/')
+def index():
+    """Main chat interface"""
+    try:
+        assistants = Assistant.query.all()
+        recent_messages = Message.query.order_by(Message.timestamp.desc()).limit(50).all()
+        recent_messages.reverse()  # Show oldest first
+        
+        return render_template('index.html', 
+                             assistants=[a.to_dict() for a in assistants],
+                             chat_history=[m.to_dict() for m in recent_messages])
+    except Exception as e:
+        logger.error(f"Error loading index: {str(e)}")
+        return render_template('index.html', assistants=[], chat_history=[], error=str(e))
+
+@app.route('/add_assistant', methods=['POST'])
+def add_assistant():
+    """Add new AI assistant"""
+    try:
+        data = request.json
+        assistant_type = data['type']
+        api_key = data.get('api_key', '')
+        custom_name = data.get('name', '')
+        is_critic = data.get('is_critic', False)
+        
+        # Generate unique ID
+        assistant_id = f"{assistant_type}_{uuid.uuid4().hex[:8]}"
+        
+        if api_key:
+            # Validate API key if provided
+            try:
+                model = validate_api_key(assistant_type, api_key)
+            except ValueError as e:
+                return jsonify({'status': 'error', 'message': str(e)})
+            
+            encrypted_key = cipher.encrypt(api_key.encode()).decode()
+        else:
+            # Allow mock assistants without API keys for testing
+            model = f"mock-{assistant_type}-model"
+            encrypted_key = None
+            logger.info(f"Creating mock assistant: {assistant_id}")
+        
+        # Check for existing assistants
+        existing = Assistant.query.filter_by(type=assistant_type, is_critic=is_critic).first()
+        if existing and not custom_name:
+            return jsonify({
+                'status': 'error', 
+                'message': f'{assistant_type} {"critic" if is_critic else "assistant"} already exists'
+            })
+        
+        # Create new assistant
+        assistant = Assistant(
+            id=assistant_id,
+            type=assistant_type,
+            name=custom_name or f"{assistant_type.title()} {'Critic' if is_critic else 'Assistant'}",
+            model=model,
+            api_key_encrypted=encrypted_key,
+            active=True,
+            is_critic=is_critic
+        )
+        
+        db.session.add(assistant)
+        db.session.commit()
+        
+        message = f'🎯 {assistant.name} has joined the Helix and is ready for action!'
+        logger.info(f"Added assistant: {assistant_id} ({assistant_type})")
+        
+        return jsonify({
+            'status': 'success', 
+            'message': message,
+            'assistant': assistant.to_dict()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding assistant: {str(e)}")
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/toggle_assistant/<assistant_id>')
+def toggle_assistant(assistant_id):
+    """Toggle assistant active status"""
+    try:
+        assistant = Assistant.query.get(assistant_id)
+        if not assistant:
+            return jsonify({'status': 'error', 'message': 'Assistant not found'})
+        
+        assistant.active = not assistant.active
+        db.session.commit()
+        
+        status = "activated" if assistant.active else "deactivated"
+        return jsonify({
+            'status': 'success', 
+            'message': f'✅ {assistant.name} has been {status}',
+            'active': assistant.active
+        })
+        
+    except Exception as e:
+        logger.error(f"Error toggling assistant {assistant_id}: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/send_message', methods=['POST'])
+def send_message():
+    """Process message through multiple AI assistants with critic evaluation"""
+    try:
+        data = request.json
+        user_content = data['message']
+        session_id = data.get('session_id', str(uuid.uuid4()))
+        
+        if not user_content.strip():
+            return jsonify({'status': 'error', 'message': 'Message cannot be empty'})
+        
+        # Store user message
+        user_message = Message(
+            sender_id='user',
+            sender_type='user',
+            content=user_content,
+            session_id=session_id
+        )
+        db.session.add(user_message)
+        db.session.commit()
+        
+        # Get conversation context
+        context_messages = Message.query.filter_by(session_id=session_id)\
+                                      .order_by(Message.timestamp)\
+                                      .limit(20).all()  # Limit context for performance
+        
+        # Get active assistants (excluding critics for now)
+        active_assistants = Assistant.query.filter_by(active=True, is_critic=False).all()
+        critic_assistant = Assistant.query.filter_by(active=True, is_critic=True).first()
+        
+        if not active_assistants:
+            return jsonify({
+                'status': 'error', 
+                'message': 'No active assistants available. Please add and activate at least one assistant.'
+            })
+        
+        responses_for_frontend = []
+        llm_responses = {}
+        
+        # Process regular assistants
+        for assistant in active_assistants:
+            try:
+                # Generate response (mock for now)
+                if assistant.api_key_encrypted:
+                    # In production, decrypt key and make real API call here
+                    response_text = f"[PRODUCTION MODE] {assistant.name} processing your message..."
+                else:
+                    response_text = mock_llm_response(
+                        assistant.type, 
+                        assistant.model, 
+                        user_content,
+                        len(context_messages)
+                    )
+                
+                # Store response
+                llm_message = Message(
+                    sender_id=assistant.id,
+                    sender_type=assistant.type,
+                    content=response_text,
+                    session_id=session_id
+                )
+                db.session.add(llm_message)
+                
+                llm_responses[assistant.id] = response_text
+                responses_for_frontend.append(llm_message.to_dict())
+                
+                logger.info(f"Response generated by {assistant.name}")
+                
+            except Exception as e:
+                logger.error(f"Error with {assistant.name}: {str(e)}")
+                error_msg = f"❌ Error from {assistant.name}: {str(e)}"
+                responses_for_frontend.append({
+                    'sender_id': assistant.id,
+                    'sender_type': 'error',
+                    'content': error_msg,
+                    'timestamp': time.time()
+                })
+        
+        # Process critic if available
+        if critic_assistant and llm_responses:
+            try:
+                critic_response = mock_critic_response(user_content, list(llm_responses.values()))
+                
+                critic_message = Message(
+                    sender_id=critic_assistant.id,
+                    sender_type=critic_assistant.type,
+                    content=critic_response,
+                    is_critic_response=True,
+                    session_id=session_id
+                )
+                db.session.add(critic_message)
+                responses_for_frontend.append(critic_message.to_dict())
+                
+                logger.info(f"Critic evaluation completed by {critic_assistant.name}")
+                
+            except Exception as e:
+                logger.error(f"Error with critic {critic_assistant.name}: {str(e)}")
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'messages': responses_for_frontend,
+            'session_id': session_id,
+            'total_responses': len(responses_for_frontend)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing message: {str(e)}")
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/clear_chat')
+def clear_chat():
+    """Clear chat history"""
+    try:
+        Message.query.delete()
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': 'Chat history cleared'})
+    except Exception as e:
+        logger.error(f"Error clearing chat: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/health')
+def health_check():
+    """System health check"""
+    try:
+        # Check database
+        db.session.execute('SELECT 1')
+        
+        # Count assistants
+        assistant_count = Assistant.query.count()
+        active_count = Assistant.query.filter_by(active=True).count()
+        message_count = Message.query.count()
+        
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': time.time(),
+            'database': 'connected',
+            'assistants': {
+                'total': assistant_count,
+                'active': active_count
+            },
+            'messages': message_count,
+            'version': '1.0'
+        })
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
+
+if __name__ == '__main__':
+    init_db()
+    
+    # Create sample assistants for testing if none exist
+    with app.app_context():
+        if Assistant.query.count() == 0:
+            sample_assistants = [
+                Assistant(
+                    id='openai_sample',
+                    type='openai',
+                    name='GPT Assistant',
+                    model='mock-gpt-4',
+                    active=True
+                ),
+                Assistant(
+                    id='anthropic_sample',
+                    type='anthropic',
+                    name='Claude Assistant',
+                    model='mock-claude-3',
+                    active=True
+                ),
+                Assistant(
+                    id='critic_sample',
+                    type='openai',
+                    name='AI Critic',
+                    model='mock-gpt-4',
+                    active=True,
+                    is_critic=True
+                )
+            ]
+            
+            for assistant in sample_assistants:
+                db.session.add(assistant)
+            
+            db.session.commit()
+            logger.info("Sample assistants created for testing")
+    
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=os.getenv('DEBUG', 'False').lower() == 'true')
