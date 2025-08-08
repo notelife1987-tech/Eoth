@@ -1,0 +1,520 @@
+from flask import Flask, render_template, request, jsonify
+from flask_login import LoginManager, UserMixin, login_required, login_user, current_user
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from dotenv import load_dotenv
+import os
+import logging
+from cryptography.fernet import Fernet
+import uuid
+import time
+from flask_sqlalchemy import SQLAlchemy
+import json
+import asyncio
+import aiohttp
+import random
+from datetime import datetime, timedelta
+from functools import wraps
+
+app = Flask(__name__)
+load_dotenv()
+
+# --- Database Configuration ---
+database_url = os.getenv('DATABASE_URL', 'sqlite:///helix_chat.db')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'helix-secret-change-in-production')
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['REMEMBER_COOKIE_SECURE'] = True
+
+db = SQLAlchemy(app)
+
+# --- Rate Limiting ---
+limiter = Limiter(app, key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
+
+# --- Authentication Setup ---
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.String(100), primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(120), nullable=False)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(user_id)
+
+# --- Enhanced Models ---
+class Assistant(db.Model):
+    id = db.Column(db.String(100), primary_key=True)
+    type = db.Column(db.String(50), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    model = db.Column(db.String(100), nullable=False)
+    api_key_encrypted = db.Column(db.Text, nullable=True)
+    active = db.Column(db.Boolean, default=True)
+    is_critic = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'name': self.name,
+            'model': self.model,
+            'active': self.active,
+            'is_critic': self.is_critic,
+            'created_at': self.created_at.isoformat()
+        }
+
+class Message(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=db.func.current_timestamp(), index=True)
+    sender_id = db.Column(db.String(100), nullable=False)
+    sender_type = db.Column(db.String(50), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    is_critic_response = db.Column(db.Boolean, default=False)
+    original_message_id = db.Column(db.Integer, db.ForeignKey('message.id'))
+    session_id = db.Column(db.String(100), nullable=True, index=True)
+    user_id = db.Column(db.String(100), db.ForeignKey('user.id'))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.isoformat(),
+            'sender_id': self.sender_id,
+            'sender_type': self.sender_type,
+            'content': self.content,
+            'is_critic_response': self.is_critic_response,
+            'session_id': self.session_id
+        }
+
+class SystemConfig(db.Model):
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s [request_id=%(request_id)s]',
+    handlers=[
+        logging.FileHandler('helix.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Add request ID to logging
+def add_request_id():
+    return {'request_id': str(uuid.uuid4())}
+
+# Encryption setup
+ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
+if not ENCRYPTION_KEY:
+    logger.error("ENCRYPTION_KEY missing. Generating temporary key.")
+    ENCRYPTION_KEY = Fernet.generate_key().decode()
+
+try:
+    cipher = Fernet(ENCRYPTION_KEY.encode())
+except Exception as e:
+    logger.error(f"Invalid ENCRYPTION_KEY: {e}")
+    cipher = Fernet(Fernet.generate_key())
+
+# System configurations
+DEFAULT_CONFIGS = {
+    'max_context_length': '20',
+    'session_timeout_hours': '24',
+    'max_messages_per_session': '1000'
+}
+
+def init_db():
+    """Initialize database tables and default configs"""
+    with app.app_context():
+        db.create_all()
+        
+        # Initialize default configurations
+        for key, value in DEFAULT_CONFIGS.items():
+            if not SystemConfig.query.get(key):
+                db.session.add(SystemConfig(key=key, value=value))
+        db.session.commit()
+        logger.info("Database and configurations initialized")
+
+def get_system_config(key):
+    """Retrieve system configuration value"""
+    config = SystemConfig.query.get(key)
+    return config.value if config else DEFAULT_CONFIGS.get(key)
+
+def cleanup_old_sessions():
+    """Remove sessions older than configured timeout"""
+    timeout_hours = int(get_system_config('session_timeout_hours'))
+    cutoff = datetime.utcnow() - timedelta(hours=timeout_hours)
+    old_sessions = Message.query.filter(Message.timestamp < cutoff).distinct(Message.session_id).all()
+    for session in old_sessions:
+        Message.query.filter_by(session_id=session.session_id).delete()
+    db.session.commit()
+    logger.info(f"Cleaned up {len(old_sessions)} old sessions")
+
+def mock_llm_response(assistant_type, model, content, context_length=0):
+    """Generate realistic mock responses for testing"""
+    responses = {
+        'openai': [
+            f"Based on your question about '{content[:50]}...', I can provide several insights. First, this appears to be related to AI system architecture.",
+            f"Analyzing your query: '{content[:30]}...'. From a technical perspective, there are multiple approaches to consider.",
+            f"Regarding '{content[:40]}...', I'd suggest looking at this from both theoretical and practical standpoints."
+        ],
+        'anthropic': [
+            f"I appreciate your question about '{content[:50]}...'. Let me break this down systematically for you.",
+            f"Thank you for asking about '{content[:30]}...'. This is an interesting topic that has several dimensions to explore.",
+            f"Your inquiry about '{content[:40]}...' touches on some important concepts I'd like to elaborate on."
+        ],
+        'gemini': [
+            f"That's a great question about '{content[:50]}...'. Google's research suggests several relevant factors.",
+            f"Interesting query on '{content[:30]}...'. Based on current understanding, here are key points to consider.",
+            f"Your question about '{content[:40]}...' aligns with recent developments in this field."
+        ],
+        'grok': [
+            f"Well, well, well... '{content[:50]}...'. *adjusts digital sunglasses* Let me give you the unvarnished truth here.",
+            f"Oh, you want to know about '{content[:30]}...'? Buckle up, because this might get spicy! 🌶️",
+            f"'{content[:40]}...' - now that's what I call a question worth answering! Let me break it down for you."
+        ]
+    }
+    
+    context_note = f" (Context: {context_length} previous messages)" if context_length > 0 else ""
+    base_response = random.choice(responses.get(assistant_type, responses['openai']))
+    return base_response + context_note
+
+def mock_critic_response(original_content, all_responses):
+    """Generate enhanced mock critic evaluation with scoring"""
+    num_responses = len(all_responses)
+    scores = {f"Assistant {i+1}": random.randint(60, 95) for i in range(num_responses)}
+    
+    critic_templates = [
+        f"Evaluated {num_responses} responses to '{original_content[:30]}...'. Scores: {json.dumps(scores)}. The responses vary in depth, with some offering technical insights while others focus on practical applications.",
+        f"After analyzing {num_responses} responses, here's the breakdown: {json.dumps(scores)}. Each assistant approached the query '{original_content[:40]}...' differently, with varying levels of specificity.",
+        f"Critic review of {num_responses} responses to '{original_content[:50]}...': {json.dumps(scores)}. Notable differences in clarity and relevance observed."
+    ]
+    
+    return random.choice(critic_templates)
+
+@app.route('/login', methods=['POST'])
+def login():
+    """Basic login endpoint (placeholder for real auth)"""
+    try:
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')  # In production, hash and compare
+        user = User.query.filter_by(username=username).first()
+        
+        if user and password == 'test':  # Placeholder: replace with real password hashing
+            login_user(user)
+            return jsonify({'status': 'success', 'message': 'Logged in'})
+        return jsonify({'status': 'error', 'message': 'Invalid credentials'}), 401
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}", extra=add_request_id())
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/')
+def index():
+    """Main chat interface"""
+    try:
+        assistants = Assistant.query.all()
+        recent_messages = Message.query.filter_by(user_id=current_user.id if current_user.is_authenticated else None)\
+                                     .order_by(Message.timestamp.desc()).limit(50).all()
+        recent_messages.reverse()
+        
+        return render_template('index.html', 
+                             assistants=[a.to_dict() for a in assistants],
+                             chat_history=[m.to_dict() for m in recent_messages])
+    except Exception as e:
+        logger.error(f"Error loading index: {str(e)}", extra=add_request_id())
+        return render_template('index.html', assistants=[], chat_history=[], error=str(e))
+
+@app.route('/add_assistant', methods=['POST'])
+@login_required
+@limiter.limit("10 per hour")
+def add_assistant():
+    """Add new AI assistant"""
+    try:
+        data = request.json
+        assistant_type = data['type']
+        custom_name = data.get('name', '')
+        is_critic = data.get('is_critic', False)
+        
+        assistant_id = f"{assistant_type}_{uuid.uuid4().hex[:8]}"
+        model = f"mock-{assistant_type}-model"  # Mock model, as per your API plan
+        
+        existing = Assistant.query.filter_by(type=assistant_type, is_critic=is_critic).first()
+        if existing and not custom_name:
+            return jsonify({
+                'status': 'error', 
+                'message': f'{assistant_type} {"critic" if is_critic else "assistant"} already exists'
+            }), 400
+        
+        assistant = Assistant(
+            id=assistant_id,
+            type=assistant_type,
+            name=custom_name or f"{assistant_type.title()} {'Critic' if is_critic else 'Assistant'}",
+            model=model,
+            active=True,
+            is_critic=is_critic
+        )
+        
+        db.session.add(assistant)
+        db.session.commit()
+        
+        logger.info(f"Added assistant: {assistant_id} ({assistant_type})", extra=add_request_id())
+        return jsonify({
+            'status': 'success', 
+            'message': f'🎯 {assistant.name} has joined the Helix and is ready for action!',
+            'assistant': assistant.to_dict()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding assistant: {str(e)}", extra=add_request_id())
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/toggle_assistant/<assistant_id>')
+@login_required
+def toggle_assistant(assistant_id):
+    """Toggle assistant active status"""
+    try:
+        assistant = Assistant.query.get(assistant_id)
+        if not assistant:
+            return jsonify({'status': 'error', 'message': 'Assistant not found'}), 404
+        
+        assistant.active = not assistant.active
+        db.session.commit()
+        
+        status = "activated" if assistant.active else "deactivated"
+        logger.info(f"Toggled assistant {assistant_id} to {status}", extra=add_request_id())
+        return jsonify({
+            'status': 'success', 
+            'message': f'✅ {assistant.name} has been {status}',
+            'active': assistant.active
+        })
+        
+    except Exception as e:
+        logger.error(f"Error toggling assistant {assistant_id}: {str(e)}", extra=add_request_id())
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/send_message', methods=['POST'])
+@login_required
+@limiter.limit("50 per hour")
+async def send_message():
+    """Process message through multiple AI assistants with critic evaluation"""
+    try:
+        data = request.json
+        user_content = data['message']
+        session_id = data.get('session_id', str(uuid.uuid4()))
+        
+        if not user_content.strip():
+            return jsonify({'status': 'error', 'message': 'Message cannot be empty'}), 400
+        
+        # Validate session
+        max_messages = int(get_system_config('max_messages_per_session'))
+        session_messages = Message.query.filter_by(session_id=session_id, user_id=current_user.id).count()
+        if session_messages >= max_messages:
+            return jsonify({'status': 'error', 'message': 'Session message limit reached'}), 400
+        
+        # Store user message
+        user_message = Message(
+            sender_id='user',
+            sender_type='user',
+            content=user_content,
+            session_id=session_id,
+            user_id=current_user.id
+        )
+        db.session.add(user_message)
+        db.session.commit()
+        
+        # Get conversation context
+        max_context = int(get_system_config('max_context_length'))
+        context_messages = Message.query.filter_by(session_id=session_id, user_id=current_user.id)\
+                                      .order_by(Message.timestamp)\
+                                      .limit(max_context).all()
+        
+        active_assistants = Assistant.query.filter_by(active=True, is_critic=False).all()
+        critic_assistant = Assistant.query.filter_by(active=True, is_critic=True).first()
+        
+        if not active_assistants:
+            return jsonify({
+                'status': 'error', 
+                'message': 'No active assistants available. Please add and activate at least one assistant.'
+            }), 400
+        
+        responses_for_frontend = []
+        llm_responses = {}
+        
+        # Process assistants asynchronously
+        async def process_assistant(assistant):
+            try:
+                response_text = mock_llm_response(
+                    assistant.type, 
+                    assistant.model, 
+                    user_content,
+                    len(context_messages)
+                )
+                
+                llm_message = Message(
+                    sender_id=assistant.id,
+                    sender_type=assistant.type,
+                    content=response_text,
+                    session_id=session_id,
+                    user_id=current_user.id
+                )
+                db.session.add(llm_message)
+                
+                logger.info(f"Response generated by {assistant.name}", extra=add_request_id())
+                return assistant.id, response_text, llm_message.to_dict()
+            except Exception as e:
+                logger.error(f"Error with {assistant.name}: {str(e)}", extra=add_request_id())
+                return assistant.id, None, {
+                    'sender_id': assistant.id,
+                    'sender_type': 'error',
+                    'content': f"❌ Error from {assistant.name}: {str(e)}",
+                    'timestamp': time.time()
+                }
+        
+        # Run assistant responses concurrently
+        tasks = [process_assistant(assistant) for assistant in active_assistants]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for assistant_id, response_text, response_dict in results:
+            if response_text:
+                llm_responses[assistant_id] = response_text
+            responses_for_frontend.append(response_dict)
+        
+        # Process critic
+        if critic_assistant and llm_responses:
+            try:
+                critic_response = mock_critic_response(user_content, list(llm_responses.values()))
+                
+                critic_message = Message(
+                    sender_id=critic_assistant.id,
+                    sender_type=critic_assistant.type,
+                    content=critic_response,
+                    is_critic_response=True,
+                    session_id=session_id,
+                    user_id=current_user.id
+                )
+                db.session.add(critic_message)
+                responses_for_frontend.append(critic_message.to_dict())
+                
+                logger.info(f"Critic evaluation completed by {critic_assistant.name}", extra=add_request_id())
+                
+            except Exception as e:
+                logger.error(f"Error with critic {critic_assistant.name}: {str(e)}", extra=add_request_id())
+        
+        db.session.commit()
+        
+        # Cleanup old sessions periodically
+        if random.random() < 0.1:  # 10% chance to trigger cleanup
+            cleanup_old_sessions()
+        
+        return jsonify({
+            'status': 'success',
+            'messages': responses_for_frontend,
+            'session_id': session_id,
+            'total_responses': len(responses_for_frontend)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing message: {str(e)}", extra=add_request_id())
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/clear_chat', methods=['POST'])
+@login_required
+def clear_chat():
+    """Clear chat history for the current user with confirmation"""
+    try:
+        data = request.json
+        confirm = data.get('confirm', False)
+        if not confirm:
+            return jsonify({'status': 'error', 'message': 'Confirmation required to clear chat history'}), 400
+        
+        Message.query.filter_by(user_id=current_user.id).delete()
+        db.session.commit()
+        logger.info(f"Chat history cleared for user {current_user.id}", extra=add_request_id())
+        return jsonify({'status': 'success', 'message': 'Chat history cleared'})
+    except Exception as e:
+        logger.error(f"Error clearing chat: {str(e)}", extra=add_request_id())
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/health')
+def health_check():
+    """System health check with detailed metrics"""
+    try:
+        db.session.execute('SELECT 1')
+        
+        assistant_count = Assistant.query.count()
+        active_count = Assistant.query.filter_by(active=True).count()
+        message_count = Message.query.count()
+        session_count = db.session.query(Message.session_id).distinct().count()
+        db_size = db.engine.execute("SELECT pg_database_size(current_database())").scalar() if 'postgresql' in database_url else 0
+        
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': time.time(),
+            'database': 'connected',
+            'assistants': {
+                'total': assistant_count,
+                'active': active_count
+            },
+            'messages': message_count,
+            'sessions': session_count,
+            'db_size_bytes': db_size,
+            'version': '1.1'
+        })
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}", extra=add_request_id())
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
+
+if __name__ == '__main__':
+    init_db()
+    
+    with app.app_context():
+        if Assistant.query.count() == 0:
+            sample_assistants = [
+                Assistant(
+                    id='openai_sample',
+                    type='openai',
+                    name='GPT Assistant',
+                    model='mock-gpt-4',
+                    active=True
+                ),
+                Assistant(
+                    id='anthropic_sample',
+                    type='anthropic',
+                    name='Claude Assistant',
+                    model='mock-claude-3',
+                    active=True
+                ),
+                Assistant(
+                    id='critic_sample',
+                    type='openai',
+                    name='AI Critic',
+                    model='mock-gpt-4',
+                    active=True,
+                    is_critic=True
+                )
+            ]
+            
+            for assistant in sample_assistants:
+                db.session.add(assistant)
+            
+            # Create a sample user for testing
+            if not User.query.count():
+                sample_user = User(id=str(uuid.uuid4()), username='testuser', password_hash='test')
+                db.session.add(sample_user)
+            
+            db.session.commit()
+            logger.info("Sample assistants and user created for testing")
+    
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=os.getenv('DEBUG', 'False').lower() == 'true')
