@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' ws: http:;">
+    <title>EOTH Engine v1.0.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            line-height: 1.5;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 20px;
+        }
+        #eoth-container {
+            max-width: 800px;
+            margin: auto;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px #c9d1d9;
+        }
+        .status-bar {
+            padding: 10px;
+            background: #161b22;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 2px solid #c9d1d9;
+            padding: 10px;
+            background: #222;
+            margin-bottom: 20px;
+        }
+        .message {
+            margin: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            background: #444;
+        }
+        .user-message { background: #58a6ff; }
+        .assistant-message { background: #238636; }
+        #message-input, #phone-input { width: 60%; padding: 10px; border: none; }
+        #style-select { padding: 10px; }
+        button {
+            padding: 10px 20px;
+            background: #58a6ff;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background: #1f6feb; }
+        @media not (-webkit-min-device-pixel-ratio:0.001) {
+            .chat-container { scrollbar-width: thin; }
+        }
+        @media (forced-colors: active) {
+            .message { forced-color-adjust: none; border: 1px solid ButtonText; }
+        }
+    </style>
+</head>
+<body>
+    <div id="eoth-container">
+        <div class="status-bar" id="connection-status">Connecting...</div>
+        <div class="chat-container" id="chat-display"></div>
+        <select id="style-select">
+            <option value="formal">Formal</option>
+            <option value="poetic">Poetic</option>
+            <option value="scriptural">Scriptural</option>
+        </select>
+        <input id="message-input" placeholder="Enter your message..." />
+        <button onclick="sendMessage()">Send</button>
+        <button onclick="sendVoiceMessage()">Send Voice</button>
+        <input id="phone-input" placeholder="Enter phone number (+1234567890)" />
+        <button onclick="sendSmsMessage()">Send SMS</button>
+    </div>
+    <script>
+        const socket = io();
+        let sessionId = null;
+
+        socket.on('connect', () => {
+            document.getElementById('connection-status').textContent = 'Connected to EOTH Engine';
+        });
+
+        socket.on('session_init', (data) => {
+            sessionId = data.session_id;
+            document.getElementById('connection-status').textContent = `Session: ${sessionId}`;
+        });
+
+        socket.on('response', (data) => {
+            addMessage(data.sender_type, data.content);
+        });
+
+        socket.on('error', (data) => {
+            alert(`Error: ${data.code} - ${data.message}`);
+        });
+
+        socket.on('heartbeat_ack', (data) => {
+            console.log('Heartbeat acknowledged:', data.server_time);
+        });
+
+        function addMessage(type, content) {
+            const chatDisplay = document.getElementById('chat-display');
+            const div = document.createElement('div');
+            div.className = `message ${type === 'user' ? 'user-message' : 'assistant-message'}`;
+            div.textContent = content;
+            chatDisplay.appendChild(div);
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const style = document.getElementById('style-select').value;
+            const content = input.value.trim();
+            if (!content || !sessionId) return;
+            socket.emit('message', { content, sender_type: 'user', session_id: sessionId, style });
+            addMessage('user', content);
+            input.value = '';
+        }
+
+        function sendVoiceMessage() {
+            if (!sessionId) return;
+            const style = document.getElementById('style-select').value;
+            socket.emit('voice_message', { session_id: sessionId, style });
+        }
+
+        function sendSmsMessage() {
+            const input = document.getElementById('message-input');
+            const phone = document.getElementById('phone-input').value.trim();
+            const style = document.getElementById('style-select').value;
+            const content = input.value.trim();
+            if (!content || !phone || !sessionId) return;
+            socket.emit('sms_message', { content, phone_number: phone, session_id: sessionId, style });
+            addMessage('user', content);
+            input.value = '';
+        }
+
+        setInterval(() => {
+            socket.emit('heartbeat', {});
+        }, 30000);
+    </script>
+</body>
+</html>
