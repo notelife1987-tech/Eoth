@@ -1,9 +1,18 @@
 {
-  "projects": {},
-  "user": {
-    "token": "rw_Fe26.2**2528bd67ebd4d0becf2ae24524b898dc216c2e8790bbbf29e97eb2c3346590be*NfraDWs3i11m45JNww9MSQ*GH-580sZ3iAxc7ASnoeEcrzizoZicNfyz2eGW5JZd5t9JfMqBLl6WNW76F38c5Qti44189Y-p0DNsGW_rpNpWQ*1757484253338*e2023a303725c0f76c3dd02066e411a77235f3a07be9aa774e29d332d027a40c*AXcoWPK7ZP5w-bXvwQfyFOAIM1cMcJM4pf51-zcQ2-M"
+  "projects": {
+    "/data/data/com.termux/files/home": {
+      "projectPath": "/data/data/com.termux/files/home",
+      "name": "courteous-nurturing",
+      "project": "89c37b16-2982-4072-b513-3157268ec0f2",
+      "environment": "62cfa631-a88d-469d-9db0-30bd7538a3f5",
+      "environmentName": "production",
+      "service": "c970f3d8-5f92-4fc0-9604-7094651f469b"
+    }
   },
-  "lastUpdateCheck": null,
+  "user": {
+    "token": "rw_Fe26.2**a11e9a16ac198798250f6082e88c0064167af4d1fb715faf609edda4be0dbaef*0aIV50LEY5jEsYydp896qg*AGO1xGSYVdofLxZU1bXopjGtm7gbcFPAKvmv6gX9HZVFTTfvS0Y1bdYCBVjZY0BalEGIsPnJ4LUGSOPSAkxWdA*1757531494579*6091b2fe6af15c0bdce481b4adf19eb99c374dde03c2374203952d55792a73a6*jzeJ1eZ0euKi669DLH5rG-R4UpOwElGqw5kCldTj23w"
+  },
+  "lastUpdateCheck": "2025-08-11T19:11:38.246539599Z",
   "newVersionAvailable": null,
   "linkedFunctions": null
 }

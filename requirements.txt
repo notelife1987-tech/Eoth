@@ -4,3 +4,4 @@ cryptography
 requests
 gunicorn
 eventlet==0.33.3
+eventlet
