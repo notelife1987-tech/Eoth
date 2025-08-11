@@ -1,1 +1,6 @@
 .less-history-file:
+.search
+.shell
+" If not on helix-v1-final-protected, switch to it
+" See what files are actually in your final version
+" Check what was in your last commit

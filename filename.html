@@ -1,0 +1,153 @@
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' ws: http:;">
+    <title>EOTH Engine v1.0.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+        /* Universal CSS Reset */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        /* Cross-Browser Font Stack */
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            line-height: 1.5;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+        
+        /* Platform-Adaptive UI */
+        @media not (-webkit-min-device-pixel-ratio:0.001) {
+            /* Firefox fallback */
+            .chat-container { scrollbar-width: thin; }
+        }
+        
+        /* Windows 高对比度模式支持 */
+        @media (forced-colors: active) {
+            .message { forced-color-adjust: none; border: 1px solid ButtonText; }
+        }
+    </style>
+</head>
+<body>
+    <div id="eoth-container">
+        <div class="status-bar" id="connection-status"></div>
+        <div class="chat-container" id="chat-display"></div>
+        <div class="input-cluster">
+            <textarea id="tac-input" maxlength="2000" 
+                      oninput="this.style.height = 'auto';this.style.height = this.scrollHeight + 'px'"></textarea>
+            <div class="control-row">
+                <button onclick="sendMessage()" id="send-btn">Execute</button>
+                <div class="system-status" id="latency-display"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Universal Browser Support (ES5)
+        "use strict";
+        
+        var socket;
+        var currentSession;
+        var heartbeatInterval;
+        var lastHeartbeat = Date.now();
+        
+        function initConnection() {
+            try {
+                socket = io('http://localhost:5000', {
+                    reconnection: true,
+                    reconnectionAttempts: Infinity,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    randomizationFactor: 0.5,
+                    timeout: 20000,
+                    transports: ['websocket', 'polling']
+                });
+                
+                setupEventListeners();
+            } catch (e) {
+                handleFatalError('CONNECTION_FAILURE');
+            }
+        }
+        
+        function setupEventListeners() {
+            socket.on('connect', function() {
+                updateStatus('Connected', '#2ea043');
+            });
+            
+            socket.on('disconnect', function() {
+                updateStatus('Connection Lost', '#db3b21');
+            });
+            
+            socket.on('session_init', function(data) {
+                currentSession = data.session_id;
+                startHeartbeat(data.heartbeat_interval);
+            });
+            
+            socket.on('message', function(msg) {
+                addMessageToDisplay(msg);
+            });
+            
+            socket.on('config_update', function(config) {
+                document.getElementById('tac-input').maxLength = config.max_payload;
+            });
+            
+            socket.io.on('reconnect_attempt', function() {
+                updateStatus('Reconnecting...', '#d29922');
+            });
+        }
+        
+        function startHeartbeat(interval) {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(function() {
+                var now = Date.now();
+                if (now - lastHeartbeat > interval * 2000) {
+                    handleFatalError('HEARTBEAT_TIMEOUT');
+                }
+                socket.emit('heartbeat', { timestamp: now });
+            }, interval * 1000);
+        }
+        
+        function sendMessage() {
+            var input = document.getElementById('tac-input');
+            if (input.value.trim() === '') return;
+            
+            try {
+                var message = {
+                    content: sanitizeInput(input.value),
+                    session_id: currentSession,
+                    platform: navigator.platform
+                };
+                
+                socket.emit('user_message', message);
+                input.value = '';
+            } catch (e) {
+                showError('Failed to send message');
+            }
+        }
+        
+        function sanitizeInput(text) {
+            return text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+        
+        function addMessageToDisplay(msg) {
+            var container = document.getElementById('chat-display');
+            var messageEl = document.createElement('div');
+            messageEl.className = 'message ' + msg.sender_type;
+            messageEl.innerHTML = `
+                <div class="meta">
+                    <span class="sender">${msg.sender_type.toUpperCase()}</span>
+                    <span class="time">${new Date(msg.timestamp * 1000).toLocaleTimeString()}</span>
+                </div>
+                <div class="content">${msg.content}</div>
+            `;
+            container.appendChild(messageEl);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        initConnection();
+    </script>
+</body>
+</html>
+
