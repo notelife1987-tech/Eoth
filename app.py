@@ -1,487 +1,759 @@
-import time
-import uuid
-import logging
-import os
-import psutil
-import hashlib
-import requests
-import base64
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
+from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit
-from flask_cors import CORS
-from sqlalchemy import create_engine, Column, String, Float, Text
-from sqlalchemy.orm import declarative_base, sessionmaker
-from cryptography.fernet import Fernet
-from Cryptodome.Cipher import AES
-from Cryptodome.Random import get_random_bytes
-import openai
-import anthropic
-import google.generativeai as genai
-import speech_recognition as sr
-from twilio.rest import Client
-from twilio.twiml.messaging_response import MessagingResponse
+import os
 from dotenv import load_dotenv
+import requests
+from datetime import datetime
+import json
 
-# Initialize core components
-app = Flask(__name__)
-app.config['SECURE_HEADERS'] = True
-CORS(app, origins=os.getenv('ALLOWED_ORIGINS', '*'))
-socketio = SocketIO(app, cors_allowed_origins="*", logger=True, engineio_logger=False, async_mode='gevent', ping_interval=25, ping_timeout=60)
+# Load environment variables
 load_dotenv()
 
-# Logging setup
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-secret-key')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///chatbot.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Database setup
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eoth.db')
-engine = create_engine(f'sqlite:///{DB_PATH}', pool_size=20, max_overflow=0)
-Base = declarative_base()
-Session = sessionmaker(bind=engine)
+db = SQLAlchemy(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-class Message(Base):
-    __tablename__ = 'messages'
-    id = Column(String(36), primary_key=True)
-    timestamp = Column(Float, index=True)
-    content = Column(Text)
-    sender_type = Column(String(10))
-    session_id = Column(String(36), index=True)
-    platform = Column(String(20))
+# Database Models
+class ChatSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.String(100), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    messages = db.relationship('ChatMessage', backref='session', lazy=True, cascade='all, delete-orphan')
 
-Base.metadata.create_all(engine)
+class ChatMessage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.String(100), db.ForeignKey('chat_session.session_id'), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
+    content = db.Column(db.Text, nullable=False)
+    provider = db.Column(db.String(50))  # 'deepseek', 'gpt-hf', etc.
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-# Encryption setup
-ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
-cipher = Fernet(ENCRYPTION_KEY.encode())
-
-# Twilio setup
-TWILIO_CLIENT = Client(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
-TWILIO_PHONE = os.getenv('TWILIO_PHONE_NUMBER')
-
-# AES Vault for message encryption
-class Vault:
-    def __init__(self, password):
-        self.key = hashlib.shake_128(password.encode()).digest(32)
-
-    def encrypt(self, data):
-        iv = get_random_bytes(16)
-        cipher = AES.new(self.key, AES.MODE_EAX, iv)
-        ct, tag = cipher.encrypt_and_digest(data.encode())
-        return base64.b64encode(iv + ct + tag).decode()
-
-    def decrypt(self, encrypted_data):
-        raw = base64.b64decode(encrypted_data)
-        iv, ct, tag = raw[:16], raw[16:-16], raw[-16:]
-        cipher = AES.new(self.key, AES.MODE_EAX, iv)
-        return cipher.decrypt_and_verify(ct, tag).decode()
-
-vault = Vault(password=os.getenv('VAULT_PASSWORD', 'your-secret-password'))
-
-# KeyVault for API keys
-class KeyVault:
-    def __init__(self):
-        self.keys = {}  # Dict: {provider: [encrypted_keys]}
-        self.current_key = {}  # Dict: {provider: index}
-        self.usage_counter = {}  # Dict: {provider: count}
-        self.MAX_USAGE = 1000
-
-    def add_key(self, provider, encrypted_key):
-        if provider not in self.keys:
-            self.keys[provider] = []
-            self.current_key[provider] = 0
-            self.usage_counter[provider] = 0
-        self.keys[provider].append(encrypted_key)
-
-    def rotate_key(self, provider):
-        if provider in self.keys and self.keys[provider]:
-            self.current_key[provider] = (self.current_key[provider] + 1) % len(self.keys[provider])
-            self.usage_counter[provider] = 0
-            logger.info(f"Rotated {provider} key to index {self.current_key[provider]}")
-
-    def get_key(self, provider):
-        if provider not in self.keys or not self.keys[provider]:
-            return None
-        self.usage_counter[provider] += 1
-        if self.usage_counter[provider] >= self.MAX_USAGE:
-            self.rotate_key(provider)
-        return cipher.decrypt(self.keys[provider][self.current_key[provider]]).decode()
-
-key_vault = KeyVault()
-key_vault.add_key("anthropic", cipher.encrypt(b'your-anthropic-api-key'))  # Replace
-key_vault.add_key("openai", cipher.encrypt(b'your-openai-api-key'))  # Replace
-# Add when obtained:
-# key_vault.add_key("grok", cipher.encrypt(b'your-grok-api-key'))
-# key_vault.add_key("gemini", cipher.encrypt(b'your-gemini-api-key'))
-
-# Blockchain proof generation
-def generate_proof(files=['app.py', 'requirements.txt']):
-    try:
-        hasher = hashlib.sha256()
-        for file in files:
-            try:
-                with open(file, 'rb') as f:
-                    hasher.update(f.read())
-            except FileNotFoundError:
-                logger.warning(f"{file} not found, skipping.")
-        data_hash = hasher.hexdigest()
-        response = requests.get("https://mempool.space/api/blocks/tip").json()
-        block_height = response[0]['height']
-        block_hash = response[0]['id'][:16]
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
-        proof = f"{data_hash}|{block_height}|{block_hash}|{timestamp}"
-        with open('helix.proof', 'w') as f:
-            f.write(proof)
-        logger.info(f"Generated proof: {proof}")
-        return proof
-    except Exception as e:
-        logger.error(f"Proof generation failed: {e}")
-        return None
-
-# AI response with language style
-class RateLimitError(Exception):
-    pass
-
-def generate_ai_response(user_message, api_key, provider="anthropic", style="formal"):
-    style_prompts = {
-        "formal": "Respond in a precise, professional tone suitable for formal communication.",
-        "poetic": "Craft responses in a poetic, rhythmic style with vivid imagery.",
-        "scriptural": "Answer in a biblical, King James-style tone, as if delivering a sermon."
+# AI Provider Functions
+def call_deepseek_api(messages, model="deepseek-chat"):
+    """Call DeepSeek API"""
+    api_key = os.getenv('DEEPSEEK_API_KEY')
+    if not api_key:
+        return {"error": "DeepSeek API key not configured"}
+    
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
     }
-    system_prompt = style_prompts.get(style, "Respond clearly and concisely.")
+    
+    data = {
+        'model': model,
+        'messages': messages,
+        'max_tokens': 2000,
+        'temperature': 0.7
+    }
+    
     try:
-        if provider == "anthropic":
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=1000,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            return response.content[0].text
-        elif provider == "openai":
-            openai.api_key = api_key
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            return response.choices[0].message.content
-        elif provider == "grok":
-            response = requests.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": "grok-3",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_message}
-                    ]
-                }
-            )
-            if response.status_code == 429:
-                raise RateLimitError("Grok API rate limit exceeded")
-            return response.json()["choices"][0]["message"]["content"]
-        elif provider == "gemini":
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-pro")
-            response = model.generate_content(f"{system_prompt}\n\n{user_message}")
-            return response.text
+        response = requests.post(
+            'https://api.deepseek.com/v1/chat/completions',
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {
+                "content": result['choices'][0]['message']['content'],
+                "provider": "deepseek",
+                "model": model
+            }
         else:
-            raise ValueError("Unknown provider")
-    except (openai.error.RateLimitError, anthropic.RateLimitError, requests.exceptions.HTTPError) as e:
-        raise RateLimitError(f"{provider} API rate limit exceeded")
-
-# Speech recognition
-def listen():
-    try:
-        r = sr.Recognizer()
-        with sr.Microphone() as source:
-            r.adjust_for_ambient_noise(source)
-            audio = r.listen(source, timeout=5)
-        return r.recognize_google(audio)
+            return {"error": f"DeepSeek API error: {response.status_code}"}
     except Exception as e:
-        logger.error(f"Speech recognition failed: {e}")
-        return None
+        return {"error": f"DeepSeek API error: {str(e)}"}
 
-# WebSocket handling
-connected_clients = {}
+def call_gpt_via_huggingface(messages, model="microsoft/DialoGPT-large"):
+    """Call GPT-style models via Hugging Face API"""
+    api_key = os.getenv('HUGGINGFACE_API_KEY')
+    if not api_key:
+        return {"error": "Hugging Face API key not configured"}
+    
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    
+    # Convert messages to a single prompt for HF models
+    prompt = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
+    
+    data = {
+        'inputs': prompt,
+        'parameters': {
+            'max_new_tokens': 500,
+            'temperature': 0.7,
+            'do_sample': True
+        }
+    }
+    
+    try:
+        response = requests.post(
+            f'https://api-inference.huggingface.co/models/{model}',
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                return {
+                    "content": result[0].get('generated_text', '').replace(prompt, '').strip(),
+                    "provider": "gpt-hf",
+                    "model": model
+                }
+        return {"error": f"GPT via Hugging Face API error: {response.status_code}"}
+    except Exception as e:
+        return {"error": f"GPT via Hugging Face API error: {str(e)}"}
 
+# Routes
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/api/chat', methods=['POST'])
+def chat_api():
+    try:
+        data = request.json
+        message = data.get('message', '').strip()
+        session_id = data.get('session_id', 'default')
+        provider = data.get('provider', 'deepseek')
+        model = data.get('model', 'deepseek-chat')
+        
+        if not message:
+            return jsonify({"error": "Message is required"}), 400
+        
+        # Create session if it doesn't exist
+        chat_session = ChatSession.query.filter_by(session_id=session_id).first()
+        if not chat_session:
+            chat_session = ChatSession(session_id=session_id)
+            db.session.add(chat_session)
+            db.session.commit()
+        
+        # Save user message
+        user_message = ChatMessage(
+            session_id=session_id,
+            role='user',
+            content=message,
+            provider=provider
+        )
+        db.session.add(user_message)
+        
+        # Get conversation history
+        history = ChatMessage.query.filter_by(session_id=session_id)\
+                                 .order_by(ChatMessage.timestamp.asc())\
+                                 .limit(10).all()
+        
+        messages = [{"role": msg.role, "content": msg.content} for msg in history]
+        messages.append({"role": "user", "content": message})
+        
+        # Call appropriate AI provider
+        if provider == 'deepseek':
+            response = call_deepseek_api(messages, model)
+        elif provider == 'gpt':
+            response = call_gpt_via_huggingface(messages, model)
+        else:
+            response = {"error": "Invalid provider"}
+        
+        if "error" in response:
+            return jsonify(response), 500
+        
+        # Save assistant message
+        assistant_message = ChatMessage(
+            session_id=session_id,
+            role='assistant',
+            content=response['content'],
+            provider=provider
+        )
+        db.session.add(assistant_message)
+        db.session.commit()
+        
+        return jsonify({
+            "response": response['content'],
+            "provider": response['provider'],
+            "model": response.get('model', model)
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route('/api/sessions/<session_id>/history')
+def get_chat_history(session_id):
+    try:
+        messages = ChatMessage.query.filter_by(session_id=session_id)\
+                                  .order_by(ChatMessage.timestamp.asc()).all()
+        
+        history = []
+        for msg in messages:
+            history.append({
+                "role": msg.role,
+                "content": msg.content,
+                "provider": msg.provider,
+                "timestamp": msg.timestamp.isoformat()
+            })
+        
+        return jsonify({"history": history})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/sessions')
+def list_sessions():
+    try:
+        sessions = ChatSession.query.order_by(ChatSession.created_at.desc()).all()
+        session_list = []
+        
+        for session in sessions:
+            last_message = ChatMessage.query.filter_by(session_id=session.session_id)\
+                                          .order_by(ChatMessage.timestamp.desc()).first()
+            
+            session_list.append({
+                "session_id": session.session_id,
+                "created_at": session.created_at.isoformat(),
+                "last_message": last_message.content[:100] + "..." if last_message and len(last_message.content) > 100 else last_message.content if last_message else "No messages",
+                "message_count": len(session.messages)
+            })
+        
+        return jsonify({"sessions": session_list})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# SocketIO Events
 @socketio.on('connect')
 def handle_connect():
-    try:
-        session_id = str(uuid.uuid4())
-        client_info = {
-            'session_id': session_id,
-            'platform': request.headers.get('User-Agent', 'Unknown'),
-            'last_active': time.time()
-        }
-        connected_clients[request.sid] = client_info
-        emit('session_init', {
-            'session_id': session_id,
-            'system_time': time.time(),
-            'heartbeat_interval': 30
-        })
-        logger.info(f"Client {session_id} connected from {client_info['platform']}")
-    except Exception as e:
-        logger.error(f"Connection failed: {e}")
-        emit('fatal_error', {'code': 'ECONNECT'})
+    print('Client connected')
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    try:
-        client = connected_clients.pop(request.sid, None)
-        if client:
-            logger.info(f"Client {client['session_id']} disconnected")
-    except Exception as e:
-        logger.error(f"Disconnect error: {e}")
+    print('Client disconnected')
 
-@socketio.on('heartbeat')
-def handle_heartbeat(data):
-    try:
-        if request.sid in connected_clients:
-            connected_clients[request.sid]['last_active'] = time.time()
-            emit('heartbeat_ack', {'server_time': time.time()})
-    except Exception as e:
-        logger.error(f"Heartbeat error: {e}")
+@socketio.on('join_session')
+def handle_join_session(data):
+    session_id = data.get('session_id', 'default')
+    join_room(session_id)
+    emit('joined_session', {'session_id': session_id})
 
-@socketio.on('message')
-def handle_message(data):
-    try:
-        content = data.get('content', '')
-        sender_type = data.get('sender_type', 'user')
-        session_id = data.get('session_id')
-        style = data.get('style', 'formal')  # Default to formal
-        if not content or not session_id:
-            emit('error', {'code': 'PAYLOAD_OVERFLOW', 'message': 'Invalid message or session'})
-            return
-        encrypted_content = vault.encrypt(content)
-        with Session() as session:
-            user_message = Message(
-                id=str(uuid.uuid4()),
-                timestamp=time.time(),
-                content=encrypted_content,
-                sender_type=sender_type,
-                session_id=session_id,
-                platform=connected_clients.get(request.sid, {}).get('platform', 'Unknown')
-            )
-            session.add(user_message)
-            session.commit()
-        providers = ["anthropic", "openai"]  # Add "grok", "gemini" when keys available
-        for provider in providers:
-            try:
-                ai_response = generate_ai_response(
-                    user_message=content,
-                    api_key=key_vault.get_key(provider),
-                    provider=provider,
-                    style=style
-                )
-                encrypted_response = vault.encrypt(ai_response)
-                ai_msg = Message(
-                    id=str(uuid.uuid4()),
-                    timestamp=time.time(),
-                    content=encrypted_response,
-                    sender_type='assistant',
-                    session_id=session_id,
-                    platform='server'
-                )
-                break
-            except RateLimitError:
-                key_vault.rotate_key(provider)
-                ai_msg = Message(
-                    id=str(uuid.uuid4()),
-                    timestamp=time.time(),
-                    content=vault.encrypt("System upgrading - retry"),
-                    sender_type='system',
-                    session_id=session_id,
-                    platform='server'
-                )
-                continue
-        with Session() as session:
-            session.add(ai_msg)
-            session.commit()
-        emit('response', {'content': ai_response, 'sender_type': ai_msg.sender_type, 'session_id': session_id}, broadcast=True)
-        logger.info(f"Message processed for session {session_id} via {provider}")
-    except Exception as e:
-        logger.error(f"Message error: {e}")
-        emit('error', {'code': 'SESSION_INVALID', 'message': str(e)})
-
-@socketio.on('voice_message')
-def handle_voice_message(data):
-    try:
-        text = listen()
-        style = data.get('style', 'formal')
-        if text:
-            handle_message({
-                'content': text,
-                'sender_type': 'user',
-                'session_id': data.get('session_id'),
-                'style': style
-            })
-        else:
-            emit('error', {'code': 'VOICE_FAILED', 'message': 'Could not recognize voice input'})
-    except Exception as e:
-        logger.error(f"Voice message error: {e}")
-        emit('error', {'code': 'VOICE_FAILED', 'message': str(e)})
-
-@socketio.on('sms_message')
-def handle_sms_message(data):
-    try:
-        content = data.get('content', '')
-        phone_number = data.get('phone_number')
-        style = data.get('style', 'formal')
-        session_id = data.get('session_id')
-        if not content or not phone_number or not session_id:
-            emit('error', {'code': 'INVALID_SMS', 'message': 'Missing content, phone, or session'})
-            return
-        encrypted_content = vault.encrypt(content)
-        with Session() as session:
-            user_message = Message(
-                id=str(uuid.uuid4()),
-                timestamp=time.time(),
-                content=encrypted_content,
-                sender_type='user',
-                session_id=session_id,
-                platform='sms'
-            )
-            session.add(user_message)
-            session.commit()
-        providers = ["anthropic", "openai"]
-        for provider in providers:
-            try:
-                ai_response = generate_ai_response(
-                    user_message=content,
-                    api_key=key_vault.get_key(provider),
-                    provider=provider,
-                    style=style
-                )
-                encrypted_response = vault.encrypt(ai_response)
-                ai_msg = Message(
-                    id=str(uuid.uuid4()),
-                    timestamp=time.time(),
-                    content=encrypted_response,
-                    sender_type='assistant',
-                    session_id=session_id,
-                    platform='sms'
-                )
-                # Send SMS response
-                TWILIO_CLIENT.messages.create(
-                    body=ai_response,
-                    from_=TWILIO_PHONE,
-                    to=phone_number
-                )
-                break
-            except RateLimitError:
-                key_vault.rotate_key(provider)
-                ai_msg = Message(
-                    id=str(uuid.uuid4()),
-                    timestamp=time.time(),
-                    content=vault.encrypt("System upgrading - retry"),
-                    sender_type='system',
-                    session_id=session_id,
-                    platform='sms'
-                )
-                continue
-        with Session() as session:
-            session.add(ai_msg)
-            session.commit()
-        emit('response', {'content': ai_response, 'sender_type': ai_msg.sender_type, 'session_id': session_id}, broadcast=True)
-        logger.info(f"SMS processed for session {session_id} via {provider}")
-    except Exception as e:
-        logger.error(f"SMS error: {e}")
-        emit('error', {'code': 'SMS_FAILED', 'message': str(e)})
-
-@app.route('/sms', methods=['POST'])
-def sms_webhook():
-    try:
-        from_number = request.form.get('From')
-        body = request.form.get('Body')
-        session_id = str(uuid.uuid4())  # New session for each SMS
-        encrypted_content = vault.encrypt(body)
-        with Session() as session:
-            user_message = Message(
-                id=str(uuid.uuid4()),
-                timestamp=time.time(),
-                content=encrypted_content,
-                sender_type='user',
-                session_id=session_id,
-                platform='sms'
-            )
-            session.add(user_message)
-            session.commit()
-        providers = ["anthropic", "openai"]
-        for provider in providers:
-            try:
-                ai_response = generate_ai_response(
-                    user_message=body,
-                    api_key=key_vault.get_key(provider),
-                    provider=provider,
-                    style='formal'  # Default for SMS
-                )
-                encrypted_response = vault.encrypt(ai_response)
-                ai_msg = Message(
-                    id=str(uuid.uuid4()),
-                    timestamp=time.time(),
-                    content=encrypted_response,
-                    sender_type='assistant',
-                    session_id=session_id,
-                    platform='sms'
-                )
-                TWILIO_CLIENT.messages.create(
-                    body=ai_response,
-                    from_=TWILIO_PHONE,
-                    to=from_number
-                )
-                break
-            except RateLimitError:
-                key_vault.rotate_key(provider)
-                continue
-        with Session() as session:
-            session.add(ai_msg)
-            session.commit()
-        resp = MessagingResponse()
-        resp.message("Response sent")
-        return str(resp)
-    except Exception as e:
-        logger.error(f"SMS webhook error: {e}")
-        return str(MessagingResponse().message("Error processing SMS")), 500
-
-@app.route('/health')
-def system_health():
-    try:
-        with Session() as session:
-            session.execute('SELECT 1')
-        proof = generate_proof()
-        return jsonify({
-            "status": "healthy",
-            "connections": len(connected_clients),
-            "memory_usage": psutil.Process().memory_info().rss,
-            "blockchain_proof": proof,
-            "active_sessions": len({v['session_id'] for v in connected_clients.values()}),
-            "platform_distribution": {
-                'windows': sum('Windows' in c['platform'] for c in connected_clients.values()),
-                'linux': sum('Linux' in c['platform'] for c in connected_clients.values()),
-                'macos': sum('Mac' in c['platform'] for c in connected_clients.values())
+# HTML Template
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Interface</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .header h1 {
+            color: white;
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .provider-selector {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            flex-direction: column;
+        }
+        
+        .provider-buttons {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .provider-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .provider-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        .provider-btn.active {
+            background: #4CAF50;
+            border-color: #4CAF50;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+        
+        .main-container {
+            display: flex;
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            gap: 1rem;
+            padding: 1rem;
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1rem;
+            height: fit-content;
+        }
+        
+        .sidebar h3 {
+            color: white;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+        
+        .session-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .session-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+        
+        .session-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateX(5px);
+        }
+        
+        .session-item.active {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.2);
+        }
+        
+        .session-item h4 {
+            color: white;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .session-item p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.8rem;
+        }
+        
+        .chat-container {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            max-height: 60vh;
+        }
+        
+        .message {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            border-radius: 15px;
+            max-width: 80%;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+        }
+        
+        .message.assistant {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .message-info {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.5rem;
+        }
+        
+        .chat-input-container {
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .chat-input-form {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .chat-input {
+            flex: 1;
+            padding: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            outline: none;
+            font-size: 1rem;
+        }
+        
+        .chat-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        .chat-input:focus {
+            border-color: #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+        }
+        
+        .send-btn {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            border: none;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+        
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .new-session-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            border: none;
+            color: white;
+            padding: 0.75rem;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-bottom: 1rem;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .new-session-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
             }
-        })
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return jsonify({"status": "unhealthy", "error": str(e)}), 503
+            
+            .sidebar {
+                width: 100%;
+                order: 2;
+            }
+            
+            .chat-container {
+                order: 1;
+            }
+            
+            .provider-buttons {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>AI Chat Interface</h1>
+        <div class="provider-selector">
+            <div class="provider-buttons">
+                <button class="provider-btn active" data-provider="deepseek">DeepSeek AI</button>
+                <button class="provider-btn" data-provider="gpt">GPT Models</button>
+            </div>
+            <small style="color: rgba(255,255,255,0.7); margin-top: 0.5rem;">GPT powered by Hugging Face</small>
+        </div>
+    </div>
+    
+    <div class="main-container">
+        <div class="sidebar">
+            <button class="new-session-btn" onclick="createNewSession()">+ New Chat</button>
+            <h3>Chat Sessions</h3>
+            <div class="session-list" id="sessionList">
+                <!-- Sessions will be loaded here -->
+            </div>
+        </div>
+        
+        <div class="chat-container">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message assistant">
+                    <div>Hello! I'm your AI assistant. Choose your preferred AI provider above and start chatting!</div>
+                    <div class="message-info">System • Just now</div>
+                </div>
+            </div>
+            
+            <div class="chat-input-container">
+                <form class="chat-input-form" onsubmit="sendMessage(event)">
+                    <input type="text" class="chat-input" id="messageInput" placeholder="Type your message..." required>
+                    <button type="submit" class="send-btn" id="sendBtn">Send</button>
+                </form>
+            </div>
+        </div>
+    </div>
 
-@app.route('/')
-def index():
-    return "HELIX 1.0 ACTIVE"
+    <script>
+        let currentProvider = 'deepseek';
+        let currentSession = 'default';
+        let isLoading = false;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSessions();
+            loadChatHistory();
+        });
+        
+        // Provider selection
+        document.querySelectorAll('.provider-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelector('.provider-btn.active').classList.remove('active');
+                this.classList.add('active');
+                currentProvider = this.dataset.provider;
+            });
+        });
+        
+        function createNewSession() {
+            currentSession = 'session_' + Date.now();
+            document.getElementById('chatMessages').innerHTML = `
+                <div class="message assistant">
+                    <div>New chat session started! How can I help you today?</div>
+                    <div class="message-info">System • Just now</div>
+                </div>
+            `;
+            loadSessions();
+        }
+        
+        async function loadSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+                
+                const sessionList = document.getElementById('sessionList');
+                sessionList.innerHTML = '';
+                
+                data.sessions.forEach(session => {
+                    const sessionDiv = document.createElement('div');
+                    sessionDiv.className = 'session-item' + (session.session_id === currentSession ? ' active' : '');
+                    sessionDiv.onclick = () => switchSession(session.session_id);
+                    
+                    sessionDiv.innerHTML = `
+                        <h4>Chat ${session.session_id.replace('session_', '').substring(0, 8)}...</h4>
+                        <p>${session.last_message}</p>
+                    `;
+                    
+                    sessionList.appendChild(sessionDiv);
+                });
+            } catch (error) {
+                console.error('Error loading sessions:', error);
+            }
+        }
+        
+        function switchSession(sessionId) {
+            currentSession = sessionId;
+            loadChatHistory();
+            loadSessions(); // Refresh to update active session
+        }
+        
+        async function loadChatHistory() {
+            try {
+                const response = await fetch(`/api/sessions/${currentSession}/history`);
+                const data = await response.json();
+                
+                const chatMessages = document.getElementById('chatMessages');
+                chatMessages.innerHTML = '';
+                
+                if (data.history.length === 0) {
+                    chatMessages.innerHTML = `
+                        <div class="message assistant">
+                            <div>Hello! I'm your AI assistant. How can I help you today?</div>
+                            <div class="message-info">System • Just now</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                data.history.forEach(message => {
+                    addMessageToChat(message.content, message.role, message.provider || 'system');
+                });
+                
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+            }
+        }
+        
+        function addMessageToChat(content, role, provider = 'system') {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            const now = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `
+                <div>${content}</div>
+                <div class="message-info">${provider} • ${now}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        async function sendMessage(event) {
+            event.preventDefault();
+            
+            if (isLoading) return;
+            
+            const messageInput = document.getElementById('messageInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const message = messageInput.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message to chat
+            addMessageToChat(message, 'user');
+            messageInput.value = '';
+            
+            // Set loading state
+            isLoading = true;
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span class="loading"></span>';
+            
+            // Add loading message
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message assistant';
+            loadingDiv.innerHTML = `
+                <div><span class="loading"></span> Thinking...</div>
+                <div class="message-info">${currentProvider} • Just now</div>
+            `;
+            document.getElementById('chatMessages').appendChild(loadingDiv);
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        session_id: currentSession,
+                        provider: currentProvider
+                    })
+                });
+                
+                const data = await response.json();
+                
+                // Remove loading message
+                loadingDiv.remove();
+                
+                if (data.error) {
+                    addMessageToChat(`Error: ${data.error}`, 'assistant', 'error');
+                } else {
+                    addMessageToChat(data.response, 'assistant', data.provider);
+                }
+                
+                // Refresh sessions
+                loadSessions();
+                
+            } catch (error) {
+                loadingDiv.remove();
+                addMessageToChat(`Error: ${error.message}`, 'assistant', 'error');
+            } finally {
+                isLoading = false;
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = 'Send';
+            }
+        }
+        
+        // Enter key to send message
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage(e);
+            }
+        });
+    </script>
+</body>
+</html>
+"""
 
+# Create tables and run app
 if __name__ == '__main__':
-    proof = generate_proof()
-    logger.info(f"🔗 Blockchain Proof: {proof}")
-    if os.name == 'nt':
-        socketio.run(app, host='0.0.0.0', port=5000, debug=False)
-    else:
-        import gevent
-        from gevent import monkey
-        monkey.patch_all()
-        socketio.run(app, host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    with app.app_context():
+        db.create_all()
+    
+    # Use socketio.run instead of app.run for SocketIO support
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
