@@ -2,6 +2,14 @@
   "projects": {
     "/data/data/com.termux/files/home": {
       "projectPath": "/data/data/com.termux/files/home",
+      "name": "bizarre-goat",
+      "project": "97914bef-6cd9-4d9e-ae69-551df27d9973",
+      "environment": "743c36f4-ba48-4cef-985d-132ad1584ad2",
+      "environmentName": "production",
+      "service": null
+    },
+    "/data/data/com.termux/files/home/eoth_clean": {
+      "projectPath": "/data/data/com.termux/files/home/eoth_clean",
       "name": "courteous-nurturing",
       "project": "89c37b16-2982-4072-b513-3157268ec0f2",
       "environment": "62cfa631-a88d-469d-9db0-30bd7538a3f5",
@@ -12,7 +20,7 @@
   "user": {
     "token": "rw_Fe26.2**a11e9a16ac198798250f6082e88c0064167af4d1fb715faf609edda4be0dbaef*0aIV50LEY5jEsYydp896qg*AGO1xGSYVdofLxZU1bXopjGtm7gbcFPAKvmv6gX9HZVFTTfvS0Y1bdYCBVjZY0BalEGIsPnJ4LUGSOPSAkxWdA*1757531494579*6091b2fe6af15c0bdce481b4adf19eb99c374dde03c2374203952d55792a73a6*jzeJ1eZ0euKi669DLH5rG-R4UpOwElGqw5kCldTj23w"
   },
-  "lastUpdateCheck": "2025-08-11T19:11:38.246539599Z",
+  "lastUpdateCheck": "2025-08-12T01:02:03.968913160Z",
   "newVersionAvailable": null,
   "linkedFunctions": null
 }
