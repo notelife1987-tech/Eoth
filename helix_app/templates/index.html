@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Evolutional Orchestrated Thinking Helix</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+
+</head>
+
+<body class="theme-helix">
+
+    <header class="app-header">
+
+        <h2 id="mode-name">Evolutional Orchestrated Thinking Helix</h2>
+
+    </header>
+
+    <main class="main-container">
+
+        <div class="side-panel left-panel">
+
+            <div class="panel-section">
+
+                <h3>Assistants</h3>
+
+                <div class="llm-buttons">
+
+                    <button class="llm-btn" data-provider="claude" data-color="peach" title="Claude"></button>
+
+                    <button class="llm-btn" data-provider="gpt" data-color="openai" title="GPT"></button>
+
+                    <button class="llm-btn" data-provider="gemini" data-color="gemini" title="Gemini"></button>
+
+                    <button class="llm-btn" data-provider="deepseek" data-color="deepseek" title="DeepSeek"></button>
+
+                </div>
+
+            </div>
+
+            <div class="panel-section">
+
+                <button id="host-selector-btn" class="util-btn">Select Host</button>
+
+                <div id="host-selector-menu" class="selector-menu hidden">
+
+                    <button class="host-btn" data-provider="claude">Claude</button>
+
+                    <button class="host-btn" data-provider="gpt">GPT</button>
+
+                    <button class="host-btn" data-provider="gemini">Gemini</button>
+
+                    <button class="host-btn" data-provider="deepseek">DeepSeek</button>
+
+                </div>
+
+            </div>
+
+            <div class="panel-section">
+
+                <button id="generations-btn" class="util-btn">Generations</button>
+
+            </div>
+
+            <div class="panel-section">
+
+                <button id="aiai-btn" class="util-btn">AIAI</button>
+
+            </div>
+
+        </div>
+
+        <div class="chat-container">
+
+            <div class="chat-messages" id="chat-messages">
+
+                </div>
+
+            <div class="chat-input-container">
+
+                <form id="chat-input-form">
+
+                    <textarea id="chat-input" class="chat-input" rows="3" placeholder="Send a message..."></textarea>
+
+                    <button type="submit" id="send-btn" class="send-btn">Send</button>
+
+                </form>
+
+                <div class="mode-buttons-container">
+
+                    <button id="helix-btn" class="mode-btn pulsing active" data-mode="helix">HELIX</button>
+
+                    <button id="legion-btn" class="mode-btn" data-mode="legion">LEGION</button>
+
+                    <button id="genie-btn" class="mode-btn" data-mode="genie">GENNIE</button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="side-panel right-panel">
+
+            <div class="panel-section">
+
+                <h3>Sessions</h3>
+
+                <div id="session-list" class="session-list">
+
+                    <button class="new-session-btn">New Session</button>
+
+                    </div>
+
+            </div>
+
+            <div class="panel-section">
+
+                <h3>Settings</h3>
+
+                <div id="settings-menu" class="settings-menu">
+
+                    <button id="toggle-theme-btn" class="settings-btn">Toggle Light/Dark Mode</button>
+
+                    <button id="export-chat-btn" class="settings-btn">Export Chat</button>
+
+                    <button id="font-size-btn" class="settings-btn">Text Size</button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+</body>
+
+</html>

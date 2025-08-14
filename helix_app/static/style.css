@@ -1,0 +1,276 @@
+/* static/style.css */
+
+:root {
+    /* Helix Theme */
+    --helix-bg-color: #1e3c72;
+    --helix-main-color: #2a5298;
+    --helix-accent-color: #00bcd4; /* Cyan */
+    --helix-text-color: #ffffff;
+    --helix-button-bg: rgba(255, 255, 255, 0.1);
+    --helix-button-border: rgba(255, 255, 255, 0.2);
+
+    /* Legion Theme */
+    --legion-bg-color: #3b0707;
+    --legion-main-color: #5d0f0f;
+    --legion-accent-color: #e54c00; /* Orange */
+    --legion-text-color: #ffffff;
+    --legion-button-bg: rgba(255, 255, 255, 0.1);
+    --legion-button-border: rgba(255, 255, 255, 0.2);
+
+    /* Genie Theme */
+    --genie-bg-color: #0d2c55;
+    --genie-main-color: #1a4f8e;
+    --genie-accent-color: #4CAF50; /* Green fallback */
+    --genie-text-color: #ffffff;
+    --genie-button-bg: rgba(255, 255, 255, 0.1);
+    --genie-button-border: rgba(255, 255, 255, 0.2);
+
+    /* Common */
+    --font-size-base: 16px;
+    --border-radius: 10px;
+    --padding-base: 1rem;
+    --box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    transition: background-color 0.5s ease;
+}
+
+body.theme-helix {
+    background: linear-gradient(135deg, var(--helix-bg-color) 0%, var(--helix-main-color) 100%);
+    color: var(--helix-text-color);
+}
+body.theme-legion {
+    background: linear-gradient(135deg, var(--legion-bg-color) 0%, var(--legion-main-color) 100%);
+    color: var(--legion-text-color);
+}
+body.theme-genie {
+    background: linear-gradient(135deg, var(--genie-bg-color) 0%, var(--genie-main-color) 100%);
+    color: var(--genie-text-color);
+}
+
+.app-header {
+    text-align: center;
+    padding: var(--padding-base);
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+}
+.app-header h2 {
+    margin: 0;
+    color: var(--helix-accent-color);
+    transition: color 0.5s ease;
+}
+body.theme-legion .app-header h2 { color: var(--legion-accent-color); }
+body.theme-genie .app-header h2 { color: var(--genie-accent-color); }
+
+.main-container {
+    display: flex;
+    flex: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+    gap: var(--padding-base);
+    padding: var(--padding-base);
+}
+
+.side-panel {
+    width: 250px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border-radius: var(--border-radius);
+    padding: var(--padding-base);
+    display: flex;
+    flex-direction: column;
+    gap: var(--padding-base);
+}
+
+.chat-container {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border-radius: var(--border-radius);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: var(--padding-base);
+    overflow-y: auto;
+    max-height: 75vh;
+}
+
+.message {
+    margin-bottom: var(--padding-base);
+    padding: var(--padding-base);
+    border-radius: var(--border-radius);
+    max-width: 80%;
+    animation: fadeIn 0.3s ease;
+}
+.message.user {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    margin-left: auto;
+}
+.message.assistant {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.message.host {
+    background: linear-gradient(135deg, var(--helix-accent-color) 0%, var(--helix-accent-color) 100%);
+    color: black;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+body.theme-legion .message.host {
+    background: linear-gradient(135deg, var(--legion-accent-color) 0%, var(--legion-accent-color) 100%);
+    color: black;
+}
+body.theme-genie .message.host {
+    background: linear-gradient(135deg, var(--genie-accent-color) 0%, var(--genie-accent-color) 100%);
+    color: black;
+}
+
+.chat-input-container {
+    padding: var(--padding-base);
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+#chat-input-form {
+    display: flex;
+    gap: 0.5rem;
+}
+.chat-input {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 25px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    outline: none;
+    font-size: 1rem;
+    resize: none;
+}
+.chat-input:focus {
+    border-color: var(--helix-accent-color);
+    box-shadow: 0 0 10px rgba(0, 188, 212, 0.3);
+}
+body.theme-legion .chat-input:focus { border-color: var(--legion-accent-color); box-shadow: 0 0 10px rgba(229, 76, 0, 0.3); }
+body.theme-genie .chat-input:focus { border-color: var(--genie-accent-color); box-shadow: 0 0 10px rgba(76, 175, 80, 0.3); }
+
+.send-btn {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    border: none;
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 25px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+}
+.send-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: var(--box-shadow); }
+.send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.mode-buttons-container {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+.mode-btn {
+    padding: 0.5rem 1.5rem;
+    border: none;
+    border-radius: 25px;
+    background: var(--helix-button-bg);
+    color: var(--helix-accent-color);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+body.theme-legion .mode-btn { color: var(--legion-accent-color); }
+body.theme-genie .mode-btn { color: var(--genie-accent-color); }
+
+.mode-btn.active {
+    box-shadow: 0 0 10px var(--helix-accent-color);
+}
+body.theme-legion .mode-btn.active { box-shadow: 0 0 10px var(--legion-accent-color); }
+body.theme-genie .mode-btn.active { box-shadow: 0 0 10px var(--genie-accent-color); }
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 5px var(--helix-accent-color); }
+    50% { box-shadow: 0 0 20px var(--helix-accent-color); }
+    100% { box-shadow: 0 0 5px var(--helix-accent-color); }
+}
+body.theme-legion @keyframes pulse {
+    0% { box-shadow: 0 0 5px var(--legion-accent-color); }
+    50% { box-shadow: 0 0 20px var(--legion-accent-color); }
+    100% { box-shadow: 0 0 5px var(--legion-accent-color); }
+}
+body.theme-genie @keyframes pulse {
+    0% { box-shadow: 0 0 5px var(--genie-accent-color); }
+    50% { box-shadow: 0 0 20px var(--genie-accent-color); }
+    100% { box-shadow: 0 0 5px var(--genie-accent-color); }
+}
+
+.mode-btn.pulsing.active {
+    animation: pulse 2s infinite ease-in-out;
+}
+
+.llm-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: center;
+    align-items: center;
+}
+.llm-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    transition: transform 0.3s ease;
+}
+.llm-btn:hover { transform: scale(1.1); }
+.llm-btn.active { border-color: var(--helix-accent-color); }
+
+.llm-btn[data-color="peach"] { background-color: #ff9980; }
+.llm-btn[data-color="openai"] { background-color: #00a67e; }
+.llm-btn[data-color="gemini"] { background: linear-gradient(45deg, #1A73E8, #EA4335, #FBBC04, #34A853); }
+.llm-btn[data-color="deepseek"] { background-color: #007bff; }
+
+.util-btn, .settings-btn {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: var(--border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--helix-accent-color);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+.util-btn:hover, .settings-btn:hover { background: rgba(255, 255, 255, 0.2); }
+body.theme-legion .util-btn, body.theme-legion .settings-btn { color: var(--legion-accent-color); }
+body.theme-genie .util-btn, body.theme-genie .settings-btn { color: var(--genie-accent-color); }
+
+.new-session-btn {
+    width: 100%;
+    padding: 0.75rem;
+    border: none;
+    border-radius: var(--border-radius);
+    background: var(--helix-accent-color);
+    color: black;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+.new-session-btn:hover { transform: translateY(-2px); box-shadow: var(--box-shadow); }
+body.theme-legion .new-session-btn { background: var(--legion-accent-color); }
+body.theme-genie .new-session-btn { background: var(--genie-accent-color); }
+
+/* Additional styles for sidebar, loading, media queries, etc. can be added here */

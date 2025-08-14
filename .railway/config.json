@@ -2,11 +2,11 @@
   "projects": {
     "/data/data/com.termux/files/home": {
       "projectPath": "/data/data/com.termux/files/home",
-      "name": "bizarre-goat",
-      "project": "97914bef-6cd9-4d9e-ae69-551df27d9973",
-      "environment": "743c36f4-ba48-4cef-985d-132ad1584ad2",
+      "name": "courteous-nurturing",
+      "project": "89c37b16-2982-4072-b513-3157268ec0f2",
+      "environment": "62cfa631-a88d-469d-9db0-30bd7538a3f5",
       "environmentName": "production",
-      "service": null
+      "service": "c970f3d8-5f92-4fc0-9604-7094651f469b"
     },
     "/data/data/com.termux/files/home/eoth_clean": {
       "projectPath": "/data/data/com.termux/files/home/eoth_clean",
