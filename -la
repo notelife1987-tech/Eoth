@@ -322,3 +322,8 @@
  TAB ...................................... Complete filename & cycle.
  SHIFT-TAB ...................... ESC-TAB   Complete filename & reverse cycle.
  ctrl-L ................................... Complete filename, list all.
+[33mb3768699[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mhelix-v1-final-protected[m[33m, [m[1;32mswitch[m[33m)[m Add remaining file changes
+[33m17554abe[m Remove npm cache files from tracking
+[33m95bf0378[m Merge branch 'helix-v1-final-protected' of https://github.com/Notelife1987-tech/eoth into helix-v1-final-protected true files before launch Legion mode added
+[33m29ca6346[m Update requirements.txt and other files for deployment
+[33mad5bdcaf[m Update app.py
