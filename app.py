@@ -289,3 +289,4 @@ if __name__ == '__main__':
 3. **Monitor**: Use the doohicky to track resources and debug issues.
 
 ---
+@app.route('/health')\ndef health():\n    return 'OK', 200
