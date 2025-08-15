@@ -1,4 +1,2 @@
-.env
-*.log
-.npm/
-.lesshst
+__pycache__/
+deadbol/

@@ -15,12 +15,20 @@
       "environment": "62cfa631-a88d-469d-9db0-30bd7538a3f5",
       "environmentName": "production",
       "service": "c970f3d8-5f92-4fc0-9604-7094651f469b"
+    },
+    "/data/data/com.termux/files/home/helix_app": {
+      "projectPath": "/data/data/com.termux/files/home/helix_app",
+      "name": "railway up",
+      "project": "c152d5ef-4e76-4255-982b-6b6cb95ebe0c",
+      "environment": "f66c42cd-196a-4e48-bd31-880e874bb8b3",
+      "environmentName": "production",
+      "service": null
     }
   },
   "user": {
     "token": "rw_Fe26.2**a11e9a16ac198798250f6082e88c0064167af4d1fb715faf609edda4be0dbaef*0aIV50LEY5jEsYydp896qg*AGO1xGSYVdofLxZU1bXopjGtm7gbcFPAKvmv6gX9HZVFTTfvS0Y1bdYCBVjZY0BalEGIsPnJ4LUGSOPSAkxWdA*1757531494579*6091b2fe6af15c0bdce481b4adf19eb99c374dde03c2374203952d55792a73a6*jzeJ1eZ0euKi669DLH5rG-R4UpOwElGqw5kCldTj23w"
   },
-  "lastUpdateCheck": "2025-08-12T01:02:03.968913160Z",
+  "lastUpdateCheck": "2025-08-15T00:06:23.109559340Z",
   "newVersionAvailable": null,
   "linkedFunctions": null
 }

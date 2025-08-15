@@ -1,2 +1,7 @@
 [user]
-	email = notelife1987@gmail.com
+	email = noteworthyendeavors1987@gmail.com
+	name = Jonathan Miller
+[safe]
+	directory = /storage/
+	directory = /storage/emulated/0/termux-backup/deadbolt
+	directory = /storage/emulated/0/termux-backup/deadbolt

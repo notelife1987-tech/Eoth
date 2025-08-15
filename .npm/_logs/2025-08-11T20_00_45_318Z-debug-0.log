@@ -1,0 +1,76 @@
+0 verbose cli /data/data/com.termux/files/usr/bin/node /data/data/com.termux/files/usr/bin/npm
+1 info using npm@11.5.1
+2 info using node@v24.5.0
+3 silly config load:file:/data/data/com.termux/files/usr/lib/node_modules/npm/npmrc
+4 silly config load:file:/data/data/com.termux/files/home/.npmrc
+5 silly config load:file:/data/data/com.termux/files/usr/etc/npmrc
+6 verbose title npm install @railway/cli
+7 verbose argv "install" "--global" "@railway/cli"
+8 verbose logfile logs-max:10 dir:/data/data/com.termux/files/home/.npm/_logs/2025-08-11T20_00_45_318Z-
+9 verbose logfile /data/data/com.termux/files/home/.npm/_logs/2025-08-11T20_00_45_318Z-debug-0.log
+10 silly packumentCache heap:1048838144 maxSize:262209536 maxEntrySize:131104768
+11 silly logfile done cleaning log files
+12 silly idealTree buildDeps
+13 silly fetch manifest @railway/cli@*
+14 silly packumentCache full:https://registry.npmjs.org/@railway%2fcli cache-miss
+15 http fetch GET 200 https://registry.npmjs.org/@railway%2fcli 3267ms (cache miss)
+16 silly packumentCache full:https://registry.npmjs.org/@railway%2fcli set size:undefined disposed:false
+17 silly placeDep ROOT @railway/cli@4.6.1 OK for:  want: *
+18 silly fetch manifest tar@^6.1.11
+19 silly packumentCache full:https://registry.npmjs.org/tar cache-miss
+20 silly fetch manifest node-fetch@^3.1.0
+21 silly packumentCache full:https://registry.npmjs.org/node-fetch cache-miss
+22 silly fetch manifest @napi-rs/triples@^1.1.0
+23 silly packumentCache full:https://registry.npmjs.org/@napi-rs%2ftriples cache-miss
+24 http fetch GET 200 https://registry.npmjs.org/tar 786ms (cache miss)
+25 silly packumentCache full:https://registry.npmjs.org/tar set size:undefined disposed:false
+26 http fetch GET 200 https://registry.npmjs.org/@napi-rs%2ftriples 2364ms (cache miss)
+27 silly packumentCache full:https://registry.npmjs.org/@napi-rs%2ftriples set size:undefined disposed:false
+28 http fetch GET 200 https://registry.npmjs.org/node-fetch 2375ms (cache miss)
+29 silly packumentCache full:https://registry.npmjs.org/node-fetch set size:undefined disposed:false
+30 silly placeDep node_modules/@railway/cli @napi-rs/triples@1.2.0 OK for: @railway/cli@4.6.1 want: ^1.1.0
+31 silly placeDep node_modules/@railway/cli node-fetch@3.3.2 OK for: @railway/cli@4.6.1 want: ^3.1.0
+32 silly placeDep node_modules/@railway/cli tar@6.2.1 OK for: @railway/cli@4.6.1 want: ^6.1.11
+33 silly fetch manifest data-uri-to-buffer@^4.0.0
+34 silly packumentCache full:https://registry.npmjs.org/data-uri-to-buffer cache-miss
+35 silly fetch manifest fetch-blob@^3.1.4
+36 silly packumentCache full:https://registry.npmjs.org/fetch-blob cache-miss
+37 silly fetch manifest formdata-polyfill@^4.0.10
+38 silly packumentCache full:https://registry.npmjs.org/formdata-polyfill cache-miss
+39 silly fetch manifest chownr@^2.0.0
+40 silly packumentCache full:https://registry.npmjs.org/chownr cache-miss
+41 silly fetch manifest mkdirp@^1.0.3
+42 silly packumentCache full:https://registry.npmjs.org/mkdirp cache-miss
+43 silly fetch manifest yallist@^4.0.0
+44 silly packumentCache full:https://registry.npmjs.org/yallist cache-miss
+45 silly fetch manifest minipass@^5.0.0
+46 silly packumentCache full:https://registry.npmjs.org/minipass cache-miss
+47 http fetch GET 200 https://registry.npmjs.org/data-uri-to-buffer 958ms (cache miss)
+48 silly packumentCache full:https://registry.npmjs.org/data-uri-to-buffer set size:undefined disposed:false
+49 silly fetch manifest minizlib@^2.1.1
+50 silly packumentCache full:https://registry.npmjs.org/minizlib cache-miss
+51 http fetch GET 200 https://registry.npmjs.org/fetch-blob 971ms (cache miss)
+52 silly packumentCache full:https://registry.npmjs.org/fetch-blob set size:undefined disposed:false
+53 silly fetch manifest fs-minipass@^2.0.0
+54 silly packumentCache full:https://registry.npmjs.org/fs-minipass cache-miss
+55 http fetch GET 200 https://registry.npmjs.org/formdata-polyfill 981ms (cache miss)
+56 silly packumentCache full:https://registry.npmjs.org/formdata-polyfill set size:undefined disposed:false
+57 http fetch GET 200 https://registry.npmjs.org/minizlib 799ms (cache miss)
+58 silly packumentCache full:https://registry.npmjs.org/minizlib set size:undefined disposed:false
+59 http fetch GET 200 https://registry.npmjs.org/fs-minipass 798ms (cache miss)
+60 silly packumentCache full:https://registry.npmjs.org/fs-minipass set size:undefined disposed:false
+61 http fetch GET 200 https://registry.npmjs.org/chownr 2425ms (cache miss)
+62 silly packumentCache full:https://registry.npmjs.org/chownr set size:undefined disposed:false
+63 http fetch GET 200 https://registry.npmjs.org/yallist 2504ms (cache miss)
+64 silly packumentCache full:https://registry.npmjs.org/yallist set size:undefined disposed:false
+65 http fetch GET 200 https://registry.npmjs.org/mkdirp 2513ms (cache miss)
+66 silly packumentCache full:https://registry.npmjs.org/mkdirp set size:undefined disposed:false
+67 http fetch GET 200 https://registry.npmjs.org/minipass 2586ms (cache miss)
+68 silly packumentCache full:https://registry.npmjs.org/minipass set size:undefined disposed:false
+69 silly placeDep node_modules/@railway/cli data-uri-to-buffer@4.0.1 OK for: node-fetch@3.3.2 want: ^4.0.0
+70 silly placeDep node_modules/@railway/cli fetch-blob@3.2.0 OK for: node-fetch@3.3.2 want: ^3.1.4
+71 silly placeDep node_modules/@railway/cli formdata-polyfill@4.0.10 OK for: node-fetch@3.3.2 want: ^4.0.10
+72 silly fetch manifest node-domexception@^1.0.0
+73 silly packumentCache full:https://registry.npmjs.org/node-domexception cache-miss
+74 silly fetch manifest web-streams-polyfill@^3.0.3
+75 silly packumentCache full:https://registry.npmjs.org/web-streams-polyfill cache-miss
