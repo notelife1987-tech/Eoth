@@ -290,3 +290,4 @@ if __name__ == '__main__':
 
 ---
 @app.route('/health')\ndef health():\n    return 'OK', 200
+@app.route('/health')\ndef health():\n    return 'OK', 200
