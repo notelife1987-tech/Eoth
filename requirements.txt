@@ -1,5 +1,5 @@
-Flask
-Flask-SQLAlchemy
-cryptography
-requests
-gunicorn
+flask==2.3.3
+flask-sqlalchemy==3.0.5
+flask-socketio==5.3.6
+psutil==5.9.6
+requests==2.31.0
