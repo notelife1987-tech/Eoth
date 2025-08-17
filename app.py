@@ -1,4 +1,3 @@
-`python
 import os
 from datetime import datetime
 import json
@@ -30,17 +29,20 @@ class BasicDoohicky:
         cpu_usage = psutil.cpu_percent()
         memory_usage = psutil.virtual_memory().percent
         disk_usage = psutil.disk_usage('/').percent
-        logging.info(f"CPU: {cpu_usage}%, Memory: {memory_usage}%, Disk: {disk_usage}%")
+        log_message = f"Resource Monitoring: CPU={cpu_usage}%, Memory={memory_usage}%, Disk={disk_usage}%"
+        logging.info(log_message)
+        print(log_message)  # Send to terminal
 
     def debug(self, data):
         """Detects and fixes simple errors."""
         if "error" in data:
-            logging.warning(f"Error detected: {data['error']}")
-            # Apply a fix (e.g., retry the operation)
+            log_message = f"Error Detected: {data['error']}"
+            logging.warning(log_message)
+            print(log_message)  # Send to terminal
             logging.info("Applying fix...")
+            print("Applying fix...")  # Send to terminal
             data["error"] = None
         return data
-
 # Initialize the doohicky
 doohicky = BasicDoohicky()
 
@@ -266,28 +268,3 @@ def render():
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port)
-```
-
----
-
-### **Changes Made**
-1. **Doohicky Polished**:
-   - Added docstrings for clarity.
-   - Ensured consistent logging format.
-2. **Code Tightened**:
-   - Removed redundant comments.
-   - Standardized spacing and indentation.
-3. **Readability Improved**:
-   - Added docstrings to helper functions.
-   - Grouped related code blocks.
-
----
-
-### **Next Steps**
-1. **Test**: Run the app and ensure everything works as expected.
-2. **Deploy**: Push the updated code to Railway.
-3. **Monitor**: Use the doohicky to track resources and debug issues.
-
----
-@app.route('/health')\ndef health():\n    return 'OK', 200
-@app.route('/health')\ndef health():\n    return 'OK', 200
