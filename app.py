@@ -265,6 +265,10 @@ def render():
 
 # -----------------------------
 # Start the app
+try:
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port)
+except Exception as e:
+    print(f"Startup error: {e}")
+    pass
